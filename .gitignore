@@ -1,0 +1,41 @@
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# SSL certificates
+*.pem
+*.crt
+*.key
+
+# Data directories
+data/
+var/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node modules (if running node locally)
+node_modules/
+
+# Docker volumes
+volumes/
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.temp
