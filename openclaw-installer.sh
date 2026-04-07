@@ -17,19 +17,51 @@ DATA_DIR="/var/lib/open-claw"
 PORT=8080
 SSL_PORT=8443
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
-log() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-log_step() { echo -e "\n${CYAN}${BOLD}==>${NC} ${BOLD}$1${NC}"; }
+log() { printf '%s%s[INFO]%s %s\n' "$BLUE" "$NC" "$NC" "$1"; }
+log_success() { printf '%s%s[SUCCESS]%s %s\n' "$GREEN" "$NC" "$NC" "$1"; }
+log_warn() { printf '%s%s[WARN]%s %s\n' "$YELLOW" "$NC" "$NC" "$1"; }
+log_error() { printf '%s%s[ERROR]%s %s\n' "$RED" "$NC" "$NC" "$1"; exit 1; }
+log_step() { printf '\n%s%s==>%s %s%s%s\n' "$CYAN" "$BOLD" "$NC" "$BOLD" "$1" "$NC"; }
+
+# Read input (works when piped via curl)
+prompt_input() {
+    local prompt="$1"
+    local var_name="$2"
+    local default="$3"
+
+    if [[ -t 0 ]]; then
+        # Terminal - read from stdin
+        read -rp "$prompt" "$var_name"
+    else
+        # Piped - read from /dev/tty
+        read -rp "$prompt" "$var_name" < /dev/tty
+    fi
+
+    eval "val=\$$var_name"
+    if [[ -z "$val" ]]; then
+        eval "$var_name=\$default"
+    fi
+}
+
+prompt_password() {
+    local prompt="$1"
+    local var_name="$2"
+
+    if [[ -t 0 ]]; then
+        read -rsp "$prompt" "$var_name"
+    else
+        read -rsp "$prompt" "$var_name" < /dev/tty
+    fi
+    echo
+}
 
 # Parse arguments
 parse_args() {
@@ -145,7 +177,7 @@ EOF
 interactive_prompt() {
     echo ""
     echo "=============================================="
-    echo -e "  ${BOLD}OpenClaw VPS - Interactive Setup${NC}"
+    printf '  %sOpenClaw VPS - Interactive Setup%s\n' "$BOLD" "$NC"
     echo "=============================================="
     echo ""
     echo "Press Enter to use default values (shown in brackets)."
@@ -156,26 +188,25 @@ interactive_prompt() {
     # =================================================================
     if [[ -z "${SETUP_MODE:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Choose Your Setup Mode:${NC}"
+        printf '%sChoose Your Setup Mode:%s\n' "$BOLD" "$NC"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        echo "  ${GREEN}1${NC}) ${BOLD}Tailscale VPN${NC} - Most private"
+        printf '  %s1%s) %sTailscale VPN%s - Most private\n' "$GREEN" "$NC" "$BOLD" "$NC"
         echo "      - Requires Tailscale app on your devices"
         echo "      - No ports exposed to internet"
         echo "      - Encrypted peer-to-peer connection"
         echo ""
-        echo "  ${YELLOW}2${NC}) ${BOLD}Cloudflare Tunnel${NC} - Easy access (recommended)"
+        printf '  %s2%s) %sCloudflare Tunnel%s - Easy access (recommended)\n' "$YELLOW" "$NC" "$BOLD" "$NC"
         echo "      - No VPN app needed"
         echo "      - No ports exposed to internet"
         echo "      - Uses Cloudflare's global network"
         echo ""
-        echo "  ${CYAN}3${NC}) ${BOLD}Cloudflare Proxy${NC} - Traditional"
+        printf '  %s3%s) %sCloudflare Proxy%s - Traditional\n' "$CYAN" "$NC" "$BOLD" "$NC"
         echo "      - Direct access via domain"
         echo "      - Cloudflare proxies and protects traffic"
         echo "      - Requires ports 80/443 open locally"
         echo ""
-        read -rp "Select setup mode [1]: " SETUP_MODE
-        [[ -z "$SETUP_MODE" ]] && SETUP_MODE="1"
+        prompt_input "Select setup mode [1]: " SETUP_MODE "1"
     fi
 
     # =================================================================
@@ -183,7 +214,7 @@ interactive_prompt() {
     # =================================================================
     if [[ "$SETUP_MODE" == "1" ]]; then
         echo ""
-        echo -e "${BOLD}Mode: Tailscale VPN${NC}"
+        printf '%sMode: Tailscale VPN%s\n' "$BOLD" "$NC"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Tailscale creates a private VPN network. Only users logged into"
@@ -191,21 +222,20 @@ interactive_prompt() {
         echo ""
 
         if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
-            echo -e "${BOLD}Step 1: Generate Tailscale Auth Key${NC}"
+            printf '%sStep 1: Generate Tailscale Auth Key%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "1. Open this link: https://login.tailscale.com/admin/settings/keys"
-            echo "2. Click '${GREEN}Generate auth key${NC}' button"
-            echo "3. Copy the key (starts with '${GREEN}tskey-auth-${NC}')"
+            printf "2. Click '%sGenerate auth key%s' button\n" "$GREEN" "$NC"
+            printf "3. Copy the key (starts with '%stskey-auth-%s')\n" "$GREEN" "$NC"
             echo ""
-            read -rp "Paste your Tailscale Auth Key: " TAILSCALE_AUTH_KEY
+            prompt_input "Paste your Tailscale Auth Key: " TAILSCALE_AUTH_KEY ""
         fi
 
         # Custom hostname (optional)
         if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
             echo ""
             echo "Custom hostname (e.g., openclaw.example.com) or press Enter for default:"
-            read -rp "[auto-generated tailxxxx.ts.net]: " TAILSCALE_FQDN
-            [[ -z "$TAILSCALE_FQDN" ]] && TAILSCALE_FQDN=""
+            prompt_input "[auto-generated tailxxxx.ts.net]: " TAILSCALE_FQDN ""
         fi
 
     # =================================================================
@@ -213,7 +243,7 @@ interactive_prompt() {
     # =================================================================
     elif [[ "$SETUP_MODE" == "2" ]]; then
         echo ""
-        echo -e "${BOLD}Mode: Cloudflare Tunnel${NC}"
+        printf '%sMode: Cloudflare Tunnel%s\n' "$BOLD" "$NC"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Cloudflare Tunnel creates a secure connection through Cloudflare's"
@@ -222,38 +252,37 @@ interactive_prompt() {
         echo ""
 
         if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-            echo -e "${BOLD}Step 1: Create Cloudflare API Token${NC}"
+            printf '%sStep 1: Create Cloudflare API Token%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "1. Open: https://dash.cloudflare.com/profile/api-tokens"
-            echo "2. Click '${GREEN}Create Token${NC}'"
-            echo "3. Choose '${GREEN}Create Custom Token${NC}'"
-            echo "4. Token Name: ${GREEN}OpenClaw-Tunnel${NC}"
+            printf "2. Click '%sCreate Token%s' button\n" "$GREEN" "$NC"
+            printf "3. Choose '%sCreate Custom Token%s'\n" "$GREEN" "$NC"
+            printf "4. Token Name: %sOpenClaw-Tunnel%s\n" "$GREEN" "$NC"
             echo "5. Permissions:"
-            echo "   - Account: ${GREEN}Cloudflare Tunnel${NC} > ${GREEN}Edit${NC}"
-            echo "6. Account Resources: ${GREEN}Include${NC} > ${GREEN}Your account${NC}"
-            echo "7. Click '${GREEN}Create Token${NC}' and copy the token"
+            printf "   - Account: %sCloudflare Tunnel%s > %sEdit%s\n" "$GREEN" "$NC" "$GREEN" "$NC"
+            printf "6. Account Resources: %sInclude%s > %sYour account%s\n" "$GREEN" "$NC" "$GREEN" "$NC"
+            printf "7. Click '%sCreate Token%s' and copy the token\n" "$GREEN" "$NC"
             echo ""
-            read -rp "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN
+            prompt_input "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN ""
         fi
 
         if [[ -z "${DOMAIN:-}" ]]; then
             echo ""
             echo "Your domain name (must be added to Cloudflare):"
-            read -rp "Domain (e.g., example.com): " DOMAIN
+            prompt_input "Domain (e.g., example.com): " DOMAIN ""
         fi
 
         if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
             echo ""
             echo "Cloudflare Zone ID (found in Cloudflare Dashboard > Domain > Overview):"
-            read -rp "Zone ID: " CLOUDFLARE_ZONE_ID
+            prompt_input "Zone ID: " CLOUDFLARE_ZONE_ID ""
         fi
 
         # Optional: custom subdomain
         if [[ -z "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-}" ]]; then
             echo ""
             echo "Subdomain for OpenClaw (or press Enter for 'openclaw'):"
-            read -rp "[openclaw]: " CLOUDFLARE_TUNNEL_SUBDOMAIN
-            [[ -z "$CLOUDFLARE_TUNNEL_SUBDOMAIN" ]] && CLOUDFLARE_TUNNEL_SUBDOMAIN="openclaw"
+            prompt_input "[openclaw]: " CLOUDFLARE_TUNNEL_SUBDOMAIN "openclaw"
         fi
 
     # =================================================================
@@ -261,7 +290,7 @@ interactive_prompt() {
     # =================================================================
     elif [[ "$SETUP_MODE" == "3" ]]; then
         echo ""
-        echo -e "${BOLD}Mode: Cloudflare Proxy (Traditional)${NC}"
+        printf '%sMode: Cloudflare Proxy (Traditional)%s\n' "$BOLD" "$NC"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Traditional setup using Cloudflare as a reverse proxy."
@@ -269,32 +298,32 @@ interactive_prompt() {
         echo ""
 
         if [[ -z "${DOMAIN:-}" ]]; then
-            echo -e "${BOLD}Step 1: Your Domain${NC}"
+            printf '%sStep 1: Your Domain%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Your domain must be added to Cloudflare."
-            read -rp "Domain (e.g., example.com): " DOMAIN
+            prompt_input "Domain (e.g., example.com): " DOMAIN ""
         fi
 
         if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
             echo ""
-            echo -e "${BOLD}Step 2: Create Cloudflare API Token${NC}"
+            printf '%sStep 2: Create Cloudflare API Token%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "1. Open: https://dash.cloudflare.com/profile/api-tokens"
-            echo "2. Click '${GREEN}Create Token${NC}'"
-            echo "3. Choose '${GREEN}Create Custom Token${NC}'"
-            echo "4. Token Name: ${GREEN}OpenClaw-DNS${NC}"
+            printf "2. Click '%sCreate Token%s'\n" "$GREEN" "$NC"
+            printf "3. Choose '%sCreate Custom Token%s'\n" "$GREEN" "$NC"
+            printf "4. Token Name: %sOpenClaw-DNS%s\n" "$GREEN" "$NC"
             echo "5. Permissions:"
-            echo "   - Zone: ${GREEN}DNS${NC} > ${GREEN}Edit${NC}"
-            echo "6. Zone Resources: ${GREEN}Include${NC} > ${GREEN}Specific zone${NC} > ${DOMAIN:-your-domain}"
-            echo "7. Click '${GREEN}Create Token${NC}' and copy the token"
+            printf "   - Zone: %sDNS%s > %sEdit%s\n" "$GREEN" "$NC" "$GREEN" "$NC"
+            printf "6. Zone Resources: %sInclude%s > %sSpecific zone%s > %s\n" "$GREEN" "$NC" "$GREEN" "$NC" "${DOMAIN:-your-domain}"
+            printf "7. Click '%sCreate Token%s' and copy the token\n" "$GREEN" "$NC"
             echo ""
-            read -rp "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN
+            prompt_input "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN ""
         fi
 
         if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
             echo ""
             echo "Cloudflare Zone ID:"
-            read -rp "Zone ID: " CLOUDFLARE_ZONE_ID
+            prompt_input "Zone ID: " CLOUDFLARE_ZONE_ID ""
         fi
     fi
 
@@ -303,18 +332,16 @@ interactive_prompt() {
     # =================================================================
     if [[ -z "${ADMIN_USERNAME:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Admin Credentials${NC}"
+        printf '%sAdmin Credentials%s\n' "$BOLD" "$NC"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "Login for the OpenClaw web dashboard."
-        read -rp "Admin username [admin]: " ADMIN_USERNAME
-        [[ -z "$ADMIN_USERNAME" ]] && ADMIN_USERNAME="admin"
+        prompt_input "Admin username [admin]: " ADMIN_USERNAME "admin"
     fi
 
     if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
         echo ""
         echo "Leave blank to auto-generate a secure password."
-        read -rp "Admin password [auto-generate]: " ADMIN_PASSWORD
-        [[ -z "$ADMIN_PASSWORD" ]] && ADMIN_PASSWORD=""
+        prompt_input "Admin password [auto-generate]: " ADMIN_PASSWORD ""
     fi
 
     echo ""
@@ -1068,24 +1095,24 @@ build_and_start() {
 print_summary() {
     echo ""
     echo "=============================================="
-    echo "  ${GREEN}OpenClaw Installation Complete!${NC}"
+    printf '  %sOpenClaw Installation Complete!%s\n' "$GREEN" "$NC"
     echo "=============================================="
     echo ""
 
     case "${SETUP_MODE:-1}" in
         1)
-            echo -e "${BOLD}Mode: Tailscale VPN (Most Private)${NC}"
+            printf '%sMode: Tailscale VPN (Most Private)%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Your server is accessible ONLY through the Tailscale VPN."
             echo "No ports are exposed to the public internet."
             echo ""
             echo "Access URL:"
-            echo "  ${CYAN}https://${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}${NC}"
+            printf '  %shttps://%s%s\n' "$CYAN" "${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}" "$NC"
             echo ""
             echo "How to access:"
             echo "  1. Install Tailscale: https://tailscale.com/download"
             echo "  2. Open Tailscale and log in"
-            echo "  3. Visit: https://${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}"
+            printf '  3. Visit: https://%s\n' "${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}"
             echo ""
             echo "Best for:"
             echo "  - Teams with Tailscale accounts"
@@ -1094,13 +1121,13 @@ print_summary() {
             echo ""
             ;;
         2)
-            echo -e "${BOLD}Mode: Cloudflare Tunnel (Easy Access)${NC}"
+            printf '%sMode: Cloudflare Tunnel (Easy Access)%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Your server is accessible via Cloudflare's global network."
             echo "No ports are exposed to the public internet."
             echo ""
             echo "Access URL:"
-            echo "  ${CYAN}https://${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}${NC}"
+            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN}" "$NC"
             echo ""
             echo "How to access:"
             echo "  1. Open your browser"
@@ -1114,13 +1141,13 @@ print_summary() {
             echo ""
             ;;
         3)
-            echo -e "${BOLD}Mode: Cloudflare Proxy (Traditional)${NC}"
+            printf '%sMode: Cloudflare Proxy (Traditional)%s\n' "$BOLD" "$NC"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Your server uses Cloudflare as a reverse proxy."
             echo "Traffic is protected but ports 80/443 must be accessible."
             echo ""
             echo "Access URL:"
-            echo "  ${CYAN}https://${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}${NC}"
+            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN}" "$NC"
             echo ""
             echo "How to access:"
             echo "  1. Ensure ports 80 and 443 are open"
@@ -1134,11 +1161,11 @@ print_summary() {
             ;;
     esac
 
-    echo -e "${BOLD}Admin Credentials:${NC}"
-    echo "  Username: ${ADMIN_USERNAME:-admin}"
-    echo "  Password: ${ADMIN_PASSWORD}"
+    printf '%sAdmin Credentials:%s\n' "$BOLD" "$NC"
+    printf '  Username: %s\n' "${ADMIN_USERNAME:-admin}"
+    printf '  Password: %s\n' "$ADMIN_PASSWORD"
     echo ""
-    echo -e "${BOLD}Management Commands:${NC}"
+    printf '%sManagement Commands:%s\n' "$BOLD" "$NC"
     echo "  Logs:    docker-compose -f $INSTALL_DIR/docker-compose.yml logs -f"
     echo "  Stop:    docker-compose -f $INSTALL_DIR/docker-compose.yml down"
     echo "  Restart: docker-compose -f $INSTALL_DIR/docker-compose.yml restart"
