@@ -75,8 +75,8 @@ parse_args() {
                 TAILSCALE_AUTH_KEY="$2"
                 shift 2
                 ;;
-            --tailscale-fqdn)
-                TAILSCALE_FQDN="$2"
+            --tailscale-subdomain)
+                TAILSCALE_SUBDOMAIN="$2"
                 shift 2
                 ;;
             --cloudflare-token)
@@ -134,6 +134,7 @@ Setup Modes (will prompt if not specified):
 Options:
   --setup-mode MODE     Setup mode: 1 (Tailscale), 2 (Tunnel), 3 (Proxy)
   --tailscale-key KEY   Tailscale auth key (for mode 1)
+  --tailscale-subdomain SUBDOMAIN  Custom subdomain for Tailscale (e.g., openclaw -> openclaw.tailxxxx.ts.net)
   --cloudflare-token TOKEN  Cloudflare API token (for modes 2,3)
   --cloudflare-zone-id ID   Cloudflare Zone ID (for modes 2,3)
   --domain DOMAIN       Your domain name (for modes 2,3)
@@ -145,9 +146,9 @@ Examples:
   # Interactive setup (choose mode when prompted)
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash
 
-  # Tailscale VPN mode
+  # Tailscale VPN mode with custom subdomain
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
-    --setup-mode 1 --tailscale-key tskey-auth-kffdsafdsa
+    --setup-mode 1 --tailscale-key tskey-auth-kffdsafdsa --tailscale-subdomain openclaw
 
   # Cloudflare Tunnel mode (recommended)
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
@@ -231,11 +232,11 @@ interactive_prompt() {
             prompt_input "Paste your Tailscale Auth Key: " TAILSCALE_AUTH_KEY ""
         fi
 
-        # Custom hostname (optional)
-        if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
+        # Custom subdomain (optional)
+        if [[ -z "${TAILSCALE_SUBDOMAIN:-}" ]]; then
             echo ""
-            echo "Custom hostname (e.g., openclaw.example.com) or press Enter for default:"
-            prompt_input "[auto-generated tailxxxx.ts.net]: " TAILSCALE_FQDN ""
+            echo "Custom subdomain for your Tailscale domain (e.g., openclaw -> openclaw.tailxxxx.ts.net):"
+            prompt_input "[auto-generated]: " TAILSCALE_SUBDOMAIN ""
         fi
 
     # =================================================================
@@ -429,12 +430,16 @@ setup_tailscale() {
     if ! command -v tailscale &> /dev/null; then
         log "Installing Tailscale..."
         if command -v apt-get &> /dev/null; then
-            curl -fsSL https://pkgs.tailscale.com/stable/debian.bookworm.noarmor.gpg \
-                | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
-            echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" \
-                | tee /etc/apt/sources.list.d/tailscale.list > /dev/null
-            apt-get update -qq
-            apt-get install -y -qq tailscale > /dev/null 2>&1
+            # Use official Tailscale install script
+            curl -fsSL https://tailscale.com/install.sh | sh || {
+                # Fallback: manual installation
+                curl -fsSL https://pkgs.tailscale.com/stable/debian.bookworm.noarmor.gpg \
+                    -o /usr/share/keyrings/tailscale-archive-keyring.gpg 2>/dev/null || true
+                echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" \
+                    > /etc/apt/sources.list.d/tailscale.list
+                apt-get update -qq 2>/dev/null || true
+                apt-get install -y -qq tailscale 2>/dev/null || true
+            }
         elif command -v yum &> /dev/null; then
             yum install -y -q tailscale 2>/dev/null || \
             (curl -fsSL https://pkgs.tailscale.com/stable/centos8/x86_64/repo.rpm -o /tmp/repo.rpm && \
@@ -484,6 +489,11 @@ setup_tailscale() {
             # Get the Funnel hostname
             TAILSCALE_HOSTNAME=$(tailscale status --self --json 2>/dev/null | \
                 grep -oP '"DNSName":"[^"]+"' | head -1 | cut -d'"' -f4 | sed 's/\.$//' || true)
+
+            # Prepend subdomain if user specified one
+            if [[ -n "${TAILSCALE_SUBDOMAIN:-}" && -n "$TAILSCALE_HOSTNAME" ]]; then
+                TAILSCALE_HOSTNAME="${TAILSCALE_SUBDOMAIN}.${TAILSCALE_HOSTNAME}"
+            fi
 
             # Enable on boot
             systemctl enable tailscaled 2>/dev/null || true
