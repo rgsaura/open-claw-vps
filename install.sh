@@ -98,7 +98,7 @@ Options:
   --help, -h             Show this help
 
 Examples:
-  # Interactive (will prompt for Tailscale key)
+  # Interactive (will prompt for all options)
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash
 
   # Fully configured (no prompts)
@@ -115,6 +115,81 @@ Examples:
 
 For Tailscale auth key: https://login.tailscale.com/admin/settings/keys
 EOF
+}
+
+# Interactive prompts for missing options
+interactive_prompt() {
+    echo ""
+    echo "=============================================="
+    echo -e "  ${BOLD}OpenClaw VPS - Interactive Setup${NC}"
+    echo "=============================================="
+    echo ""
+    echo "Press Enter to use default values (shown in brackets)."
+    echo ""
+
+    # Tailscale key (required)
+    if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Tailscale Setup (Required)${NC}"
+        echo "Get your auth key from: https://login.tailscale.com/admin/settings/keys"
+        echo "The auth key starts with 'tskey-auth-'"
+        echo ""
+        read -rp "Tailscale Auth Key: " TAILSCALE_AUTH_KEY
+    fi
+
+    # Custom hostname (optional)
+    if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Custom Hostname (Optional)${NC}"
+        echo "Leave blank to use the default Tailscale URL (e.g., server-name.tail123.ts.net)"
+        read -rp "Custom hostname (e.g., openclaw.example.com) [skip]: " TAILSCALE_FQDN
+        [[ -z "$TAILSCALE_FQDN" ]] && TAILSCALE_FQDN=""
+    fi
+
+    # Domain (optional - needed for Cloudflare DNS)
+    if [[ -z "${DOMAIN:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Custom Domain (Optional)${NC}"
+        echo "Leave blank if you don't have a domain or just want Tailscale URL."
+        read -rp "Your domain (e.g., example.com) [skip]: " DOMAIN
+        [[ -z "$DOMAIN" ]] && DOMAIN=""
+    fi
+
+    # Cloudflare token (optional)
+    if [[ -n "${DOMAIN:-}" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Cloudflare DNS (Optional)${NC}"
+        echo "Create a token at: https://dash.cloudflare.com/profile/api-tokens"
+        echo "Needs Zone:DNS:Edit permission."
+        read -rp "Cloudflare API Token: " CLOUDFLARE_API_TOKEN
+    fi
+
+    # Cloudflare Zone ID (optional)
+    if [[ -n "${DOMAIN:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" && -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Cloudflare Zone ID${NC}"
+        echo "Found in Cloudflare Dashboard > Domain > Overview > API"
+        read -rp "Cloudflare Zone ID: " CLOUDFLARE_ZONE_ID
+    fi
+
+    # Admin username (optional)
+    if [[ -z "${ADMIN_USERNAME:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Admin User (Optional)${NC}"
+        read -rp "Admin username [admin]: " ADMIN_USERNAME
+        [[ -z "$ADMIN_USERNAME" ]] && ADMIN_USERNAME="admin"
+    fi
+
+    # Admin password (optional)
+    if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+        echo ""
+        echo -e "${BOLD}Admin Password (Optional)${NC}"
+        echo "Leave blank to auto-generate a secure password."
+        read -rp "Admin password [auto-generate]: " ADMIN_PASSWORD
+        [[ -z "$ADMIN_PASSWORD" ]] && ADMIN_PASSWORD=""
+    fi
+
+    echo ""
 }
 
 # Detect server IP
@@ -180,21 +255,7 @@ install_dep() {
 # Setup Tailscale
 setup_tailscale() {
     if [[ -z "$TAILSCALE_AUTH_KEY" ]]; then
-        echo ""
-        echo "=============================================="
-        echo "  Tailscale Setup (Required for Private Access)"
-        echo "=============================================="
-        echo ""
-        echo "Get your auth key from:"
-        echo "  https://login.tailscale.com/admin/settings/keys"
-        echo ""
-        echo "The auth key starts with 'tskey-auth-'"
-        echo ""
-        read -rp "Enter Tailscale Auth Key: " TAILSCALE_AUTH_KEY
-    fi
-
-    if [[ -z "$TAILSCALE_AUTH_KEY" ]]; then
-        log_error "Tailscale auth key is required for private access"
+        log_error "Tailscale auth key is required. Provide --tailscale-key or run interactively."
     fi
 
     log_step "Setting up Tailscale VPN..."
@@ -749,6 +810,11 @@ main() {
     echo ""
 
     parse_args "$@"
+
+    # If Tailscale key not provided via args, go interactive
+    if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+        interactive_prompt
+    fi
 
     detect_server_ip
     check_prerequisites
