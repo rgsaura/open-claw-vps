@@ -130,19 +130,24 @@ interactive_prompt() {
     # Tailscale key (required)
     if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Tailscale Setup (Required)${NC}"
-        echo "Get your auth key from: https://login.tailscale.com/admin/settings/keys"
-        echo "The auth key starts with 'tskey-auth-'"
+        echo -e "${BOLD}Tailscale Auth Key (Required)${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "1. Go to: https://login.tailscale.com/admin/settings/keys"
+        echo "2. Click 'Generate auth key'"
+        echo "3. Copy the key (starts with 'tskey-auth-')"
         echo ""
-        read -rp "Tailscale Auth Key: " TAILSCALE_AUTH_KEY
+        read -rp "Enter Tailscale Auth Key: " TAILSCALE_AUTH_KEY
     fi
 
     # Custom hostname (optional)
     if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
         echo ""
         echo -e "${BOLD}Custom Hostname (Optional)${NC}"
-        echo "Leave blank to use the default Tailscale URL (e.g., server-name.tail123.ts.net)"
-        read -rp "Custom hostname (e.g., openclaw.example.com) [skip]: " TAILSCALE_FQDN
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Leave blank to use the default Tailscale URL"
+        echo "Example: openclaw.example.com"
+        echo ""
+        read -rp "Custom hostname [skip]: " TAILSCALE_FQDN
         [[ -z "$TAILSCALE_FQDN" ]] && TAILSCALE_FQDN=""
     fi
 
@@ -150,7 +155,10 @@ interactive_prompt() {
     if [[ -z "${DOMAIN:-}" ]]; then
         echo ""
         echo -e "${BOLD}Custom Domain (Optional)${NC}"
-        echo "Leave blank if you don't have a domain or just want Tailscale URL."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Leave blank if you don't have a domain."
+        echo "Required for Cloudflare DNS auto-configuration."
+        echo ""
         read -rp "Your domain (e.g., example.com) [skip]: " DOMAIN
         [[ -z "$DOMAIN" ]] && DOMAIN=""
     fi
@@ -158,9 +166,19 @@ interactive_prompt() {
     # Cloudflare token (optional)
     if [[ -n "${DOMAIN:-}" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Cloudflare DNS (Optional)${NC}"
-        echo "Create a token at: https://dash.cloudflare.com/profile/api-tokens"
-        echo "Needs Zone:DNS:Edit permission."
+        echo -e "${BOLD}Cloudflare API Token (Optional)${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Needed to create DNS records automatically."
+        echo ""
+        echo "How to create:"
+        echo "1. Go to: https://dash.cloudflare.com/profile/api-tokens"
+        echo "2. Click 'Create Token'"
+        echo "3. Choose 'Create Custom Token'"
+        echo "4. Name: 'OpenClaw VPS'"
+        echo "5. Permissions: Zone > DNS > Edit"
+        echo "6. Zone Resources: Include > Specific zone > [your domain]"
+        echo "7. Click 'Create Token' and copy the token"
+        echo ""
         read -rp "Cloudflare API Token: " CLOUDFLARE_API_TOKEN
     fi
 
@@ -168,7 +186,13 @@ interactive_prompt() {
     if [[ -n "${DOMAIN:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" && -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
         echo ""
         echo -e "${BOLD}Cloudflare Zone ID${NC}"
-        echo "Found in Cloudflare Dashboard > Domain > Overview > API"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "How to find:"
+        echo "1. Go to: https://dash.cloudflare.com"
+        echo "2. Select your domain (${DOMAIN})"
+        echo "3. Scroll down to API section"
+        echo "4. Copy the 'Zone ID'"
+        echo ""
         read -rp "Cloudflare Zone ID: " CLOUDFLARE_ZONE_ID
     fi
 
@@ -176,6 +200,9 @@ interactive_prompt() {
     if [[ -z "${ADMIN_USERNAME:-}" ]]; then
         echo ""
         echo -e "${BOLD}Admin User (Optional)${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Login for the OpenClaw web dashboard."
+        echo ""
         read -rp "Admin username [admin]: " ADMIN_USERNAME
         [[ -z "$ADMIN_USERNAME" ]] && ADMIN_USERNAME="admin"
     fi
@@ -184,7 +211,10 @@ interactive_prompt() {
     if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
         echo ""
         echo -e "${BOLD}Admin Password (Optional)${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "Leave blank to auto-generate a secure password."
+        echo "The generated password will be shown at the end."
+        echo ""
         read -rp "Admin password [auto-generate]: " ADMIN_PASSWORD
         [[ -z "$ADMIN_PASSWORD" ]] && ADMIN_PASSWORD=""
     fi
@@ -367,6 +397,32 @@ generate_secrets() {
     ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | openssl passwd -1 -stdin 2>/dev/null || echo "CHANGEME")
 }
 
+# Create dedicated user for OpenClaw
+create_openclaw_user() {
+    log_step "Creating dedicated system user..."
+
+    # Create openclaw group if it doesn't exist
+    if ! getent group openclaw > /dev/null 2>&1; then
+        groupadd --system openclaw 2>/dev/null || \
+        groupadd openclaw 2>/dev/null || true
+        log "Created 'openclaw' group"
+    fi
+
+    # Create openclaw user if it doesn't exist
+    if ! id openclaw > /dev/null 2>&1; then
+        useradd --system \
+            --gid openclaw \
+            --home-dir "$INSTALL_DIR" \
+            --shell /usr/sbin/nologin \
+            --comment "OpenClaw VPS Management" \
+            openclaw 2>/dev/null || \
+        useradd -g openclaw -d "$INSTALL_DIR" -s /usr/sbin/nologin openclaw 2>/dev/null || true
+        log "Created 'openclaw' user"
+    fi
+
+    log_success "User 'openclaw' configured"
+}
+
 # Create directories
 create_directories() {
     log_step "Creating directories..."
@@ -374,6 +430,14 @@ create_directories() {
     mkdir -p "$DATA_DIR"/{data,logs,backups,secrets}
     chmod -R 700 "$DATA_DIR/secrets"
     chmod 600 "$INSTALL_DIR/.env" 2>/dev/null || true
+
+    # Set ownership to openclaw user
+    if id openclaw > /dev/null 2>&1; then
+        chown -R openclaw:openclaw "$INSTALL_DIR" 2>/dev/null || true
+        chown -R openclaw:openclaw "$DATA_DIR" 2>/dev/null || true
+        log "Set ownership to 'openclaw' user"
+    fi
+
     log_success "Directories created"
 }
 
@@ -493,6 +557,10 @@ NGINX
 
 # Generate Docker Compose
 generate_docker_compose() {
+    # Get numeric UID/GID for openclaw user (default to 1000 if user doesn't exist yet)
+    OPENCLAW_UID=$(id -u openclaw 2>/dev/null || echo "1000")
+    OPENCLAW_GID=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
+
     cat > "$INSTALL_DIR/docker-compose.yml" << DOCKER
 version: '3.8'
 
@@ -500,6 +568,7 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    user: root
     ports:
       - "127.0.0.1:${PORT}:8080"
       - "127.0.0.1:${SSL_PORT}:8443"
@@ -523,6 +592,7 @@ services:
   app:
     image: node:20-alpine
     restart: unless-stopped
+    user: "${OPENCLAW_UID}:${OPENCLAW_GID}"
     working_dir: /app
     command: sh -c "npm install --production && node index.js"
     volumes:
@@ -818,6 +888,7 @@ main() {
 
     detect_server_ip
     check_prerequisites
+    create_openclaw_user
     setup_tailscale
     setup_cloudflare_dns
     generate_secrets
