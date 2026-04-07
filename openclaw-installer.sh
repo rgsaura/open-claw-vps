@@ -35,6 +35,10 @@ log_step() { echo -e "\n${CYAN}${BOLD}==>${NC} ${BOLD}$1${NC}"; }
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --setup-mode)
+                SETUP_MODE="$2"
+                shift 2
+                ;;
             --tailscale-key)
                 TAILSCALE_AUTH_KEY="$2"
                 shift 2
@@ -53,6 +57,10 @@ parse_args() {
                 ;;
             --domain)
                 DOMAIN="$2"
+                shift 2
+                ;;
+            --tunnel-subdomain)
+                CLOUDFLARE_TUNNEL_SUBDOMAIN="$2"
                 shift 2
                 ;;
             --admin-user)
@@ -86,34 +94,50 @@ OpenClaw VPS - Secure Private VPS Management
 Usage:
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash
 
+Setup Modes (will prompt if not specified):
+  1) Tailscale VPN   - Most private, no ports exposed, requires VPN app
+  2) Cloudflare Tunnel - No ports exposed, no VPN app needed (recommended)
+  3) Cloudflare Proxy - Traditional, ports 80/443 needed
+
 Options:
-  --tailscale-key KEY    Tailscale auth key (starts with tskey-auth-)
-  --tailscale-fqdn NAME  Custom hostname (e.g., openclaw.example.com)
-  --cloudflare-token TOKEN  Cloudflare API token for DNS
-  --cloudflare-zone-id ID   Cloudflare Zone ID
-  --domain DOMAIN         Your domain name
-  --admin-user USER      Admin username (default: admin)
-  --admin-pass PASS       Admin password (auto-generated if not set)
-  --skip-dns             Skip Cloudflare DNS setup
-  --help, -h             Show this help
+  --setup-mode MODE     Setup mode: 1 (Tailscale), 2 (Tunnel), 3 (Proxy)
+  --tailscale-key KEY   Tailscale auth key (for mode 1)
+  --cloudflare-token TOKEN  Cloudflare API token (for modes 2,3)
+  --cloudflare-zone-id ID   Cloudflare Zone ID (for modes 2,3)
+  --domain DOMAIN       Your domain name (for modes 2,3)
+  --admin-user USER     Admin username (default: admin)
+  --admin-pass PASS     Admin password (auto-generated if not set)
+  --help, -h           Show this help
 
 Examples:
-  # Interactive (will prompt for all options)
+  # Interactive setup (choose mode when prompted)
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash
 
-  # Fully configured (no prompts)
+  # Tailscale VPN mode
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
-    --tailscale-key tskey-auth-kffdsafdsa \
-    --admin-pass MySecurePass123!
+    --setup-mode 1 --tailscale-key tskey-auth-kffdsafdsa
 
-  # With domain
+  # Cloudflare Tunnel mode (recommended)
   curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
-    --tailscale-key tskey-auth-kffdsafdsa \
-    --domain example.com \
-    --cloudflare-token cf_token \
-    --cloudflare-zone-id cf_zone_id
+    --setup-mode 2 --cloudflare-token cf_token --domain example.com
 
-For Tailscale auth key: https://login.tailscale.com/admin/settings/keys
+Setup Mode Details:
+
+  ${GREEN}1) Tailscale VPN${NC} - Best for maximum privacy
+     - No ports exposed to internet
+     - Requires Tailscale app on devices
+     - Get key: https://login.tailscale.com/admin/settings/keys
+
+  ${YELLOW}2) Cloudflare Tunnel${NC} - Best for easy access
+     - No ports exposed to internet
+     - No VPN app needed
+     - Uses Cloudflare's global network
+     - Token: Account > Cloudflare Tunnel > Edit permissions
+
+  ${CYAN}3) Cloudflare Proxy${NC} - Traditional setup
+     - Requires ports 80/443 open
+     - Full Cloudflare protection
+     - Token: Zone > DNS > Edit permissions
 EOF
 }
 
@@ -127,99 +151,183 @@ interactive_prompt() {
     echo "Press Enter to use default values (shown in brackets)."
     echo ""
 
-    # Tailscale key (required)
-    if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+    # =================================================================
+    # STEP 1: Choose setup mode
+    # =================================================================
+    if [[ -z "${SETUP_MODE:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Tailscale Auth Key (Required)${NC}"
+        echo -e "${BOLD}Choose Your Setup Mode:${NC}"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "1. Go to: https://login.tailscale.com/admin/settings/keys"
-        echo "2. Click 'Generate auth key'"
-        echo "3. Copy the key (starts with 'tskey-auth-')"
         echo ""
-        read -rp "Enter Tailscale Auth Key: " TAILSCALE_AUTH_KEY
+        echo "  ${GREEN}1${NC}) ${BOLD}Tailscale VPN${NC} - Most private"
+        echo "      - Requires Tailscale app on your devices"
+        echo "      - No ports exposed to internet"
+        echo "      - Encrypted peer-to-peer connection"
+        echo ""
+        echo "  ${YELLOW}2${NC}) ${BOLD}Cloudflare Tunnel${NC} - Easy access (recommended)"
+        echo "      - No VPN app needed"
+        echo "      - No ports exposed to internet"
+        echo "      - Uses Cloudflare's global network"
+        echo ""
+        echo "  ${CYAN}3${NC}) ${BOLD}Cloudflare Proxy${NC} - Traditional"
+        echo "      - Direct access via domain"
+        echo "      - Cloudflare proxies and protects traffic"
+        echo "      - Requires ports 80/443 open locally"
+        echo ""
+        read -rp "Select setup mode [1]: " SETUP_MODE
+        [[ -z "$SETUP_MODE" ]] && SETUP_MODE="1"
     fi
 
-    # Custom hostname (optional)
-    if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
+    # =================================================================
+    # MODE 1: Tailscale VPN
+    # =================================================================
+    if [[ "$SETUP_MODE" == "1" ]]; then
         echo ""
-        echo -e "${BOLD}Custom Hostname (Optional)${NC}"
+        echo -e "${BOLD}Mode: Tailscale VPN${NC}"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Leave blank to use the default Tailscale URL"
-        echo "Example: openclaw.example.com"
         echo ""
-        read -rp "Custom hostname [skip]: " TAILSCALE_FQDN
-        [[ -z "$TAILSCALE_FQDN" ]] && TAILSCALE_FQDN=""
+        echo "Tailscale creates a private VPN network. Only users logged into"
+        echo "your Tailscale network can access this server."
+        echo ""
+
+        if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+            echo -e "${BOLD}Step 1: Generate Tailscale Auth Key${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "1. Open this link: https://login.tailscale.com/admin/settings/keys"
+            echo "2. Click '${GREEN}Generate auth key${NC}' button"
+            echo "3. Copy the key (starts with '${GREEN}tskey-auth-${NC}')"
+            echo ""
+            read -rp "Paste your Tailscale Auth Key: " TAILSCALE_AUTH_KEY
+        fi
+
+        # Custom hostname (optional)
+        if [[ -z "${TAILSCALE_FQDN:-}" ]]; then
+            echo ""
+            echo "Custom hostname (e.g., openclaw.example.com) or press Enter for default:"
+            read -rp "[auto-generated tailxxxx.ts.net]: " TAILSCALE_FQDN
+            [[ -z "$TAILSCALE_FQDN" ]] && TAILSCALE_FQDN=""
+        fi
+
+    # =================================================================
+    # MODE 2: Cloudflare Tunnel
+    # =================================================================
+    elif [[ "$SETUP_MODE" == "2" ]]; then
+        echo ""
+        echo -e "${BOLD}Mode: Cloudflare Tunnel${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Cloudflare Tunnel creates a secure connection through Cloudflare's"
+        echo "global network. No ports need to be opened on your server."
+        echo "Users access via your domain without needing any VPN app."
+        echo ""
+
+        if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+            echo -e "${BOLD}Step 1: Create Cloudflare API Token${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "1. Open: https://dash.cloudflare.com/profile/api-tokens"
+            echo "2. Click '${GREEN}Create Token${NC}'"
+            echo "3. Choose '${GREEN}Create Custom Token${NC}'"
+            echo "4. Token Name: ${GREEN}OpenClaw-Tunnel${NC}"
+            echo "5. Permissions:"
+            echo "   - Account: ${GREEN}Cloudflare Tunnel${NC} > ${GREEN}Edit${NC}"
+            echo "6. Account Resources: ${GREEN}Include${NC} > ${GREEN}Your account${NC}"
+            echo "7. Click '${GREEN}Create Token${NC}' and copy the token"
+            echo ""
+            read -rp "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN
+        fi
+
+        if [[ -z "${DOMAIN:-}" ]]; then
+            echo ""
+            echo "Your domain name (must be added to Cloudflare):"
+            read -rp "Domain (e.g., example.com): " DOMAIN
+        fi
+
+        if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+            echo ""
+            echo "Cloudflare Zone ID (found in Cloudflare Dashboard > Domain > Overview):"
+            read -rp "Zone ID: " CLOUDFLARE_ZONE_ID
+        fi
+
+        # Optional: custom subdomain
+        if [[ -z "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-}" ]]; then
+            echo ""
+            echo "Subdomain for OpenClaw (or press Enter for 'openclaw'):"
+            read -rp "[openclaw]: " CLOUDFLARE_TUNNEL_SUBDOMAIN
+            [[ -z "$CLOUDFLARE_TUNNEL_SUBDOMAIN" ]] && CLOUDFLARE_TUNNEL_SUBDOMAIN="openclaw"
+        fi
+
+    # =================================================================
+    # MODE 3: Cloudflare Proxy (Traditional)
+    # =================================================================
+    elif [[ "$SETUP_MODE" == "3" ]]; then
+        echo ""
+        echo -e "${BOLD}Mode: Cloudflare Proxy (Traditional)${NC}"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Traditional setup using Cloudflare as a reverse proxy."
+        echo "Requires ports 80 and 443 open on your server."
+        echo ""
+
+        if [[ -z "${DOMAIN:-}" ]]; then
+            echo -e "${BOLD}Step 1: Your Domain${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Your domain must be added to Cloudflare."
+            read -rp "Domain (e.g., example.com): " DOMAIN
+        fi
+
+        if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+            echo ""
+            echo -e "${BOLD}Step 2: Create Cloudflare API Token${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "1. Open: https://dash.cloudflare.com/profile/api-tokens"
+            echo "2. Click '${GREEN}Create Token${NC}'"
+            echo "3. Choose '${GREEN}Create Custom Token${NC}'"
+            echo "4. Token Name: ${GREEN}OpenClaw-DNS${NC}"
+            echo "5. Permissions:"
+            echo "   - Zone: ${GREEN}DNS${NC} > ${GREEN}Edit${NC}"
+            echo "6. Zone Resources: ${GREEN}Include${NC} > ${GREEN}Specific zone${NC} > ${DOMAIN:-your-domain}"
+            echo "7. Click '${GREEN}Create Token${NC}' and copy the token"
+            echo ""
+            read -rp "Paste your Cloudflare API Token: " CLOUDFLARE_API_TOKEN
+        fi
+
+        if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+            echo ""
+            echo "Cloudflare Zone ID:"
+            read -rp "Zone ID: " CLOUDFLARE_ZONE_ID
+        fi
     fi
 
-    # Domain (optional - needed for Cloudflare DNS)
-    if [[ -z "${DOMAIN:-}" ]]; then
-        echo ""
-        echo -e "${BOLD}Custom Domain (Optional)${NC}"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Leave blank if you don't have a domain."
-        echo "Required for Cloudflare DNS auto-configuration."
-        echo ""
-        read -rp "Your domain (e.g., example.com) [skip]: " DOMAIN
-        [[ -z "$DOMAIN" ]] && DOMAIN=""
-    fi
-
-    # Cloudflare token (optional)
-    if [[ -n "${DOMAIN:-}" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-        echo ""
-        echo -e "${BOLD}Cloudflare API Token (Optional)${NC}"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Needed to create DNS records automatically."
-        echo ""
-        echo "How to create:"
-        echo "1. Go to: https://dash.cloudflare.com/profile/api-tokens"
-        echo "2. Click 'Create Token'"
-        echo "3. Choose 'Create Custom Token'"
-        echo "4. Name: 'OpenClaw VPS'"
-        echo "5. Permissions: Zone > DNS > Edit"
-        echo "6. Zone Resources: Include > Specific zone > [your domain]"
-        echo "7. Click 'Create Token' and copy the token"
-        echo ""
-        read -rp "Cloudflare API Token: " CLOUDFLARE_API_TOKEN
-    fi
-
-    # Cloudflare Zone ID (optional)
-    if [[ -n "${DOMAIN:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" && -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
-        echo ""
-        echo -e "${BOLD}Cloudflare Zone ID${NC}"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "How to find:"
-        echo "1. Go to: https://dash.cloudflare.com"
-        echo "2. Select your domain (${DOMAIN})"
-        echo "3. Scroll down to API section"
-        echo "4. Copy the 'Zone ID'"
-        echo ""
-        read -rp "Cloudflare Zone ID: " CLOUDFLARE_ZONE_ID
-    fi
-
-    # Admin username (optional)
+    # =================================================================
+    # ADMIN CREDENTIALS (common to all modes)
+    # =================================================================
     if [[ -z "${ADMIN_USERNAME:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Admin User (Optional)${NC}"
+        echo -e "${BOLD}Admin Credentials${NC}"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "Login for the OpenClaw web dashboard."
-        echo ""
         read -rp "Admin username [admin]: " ADMIN_USERNAME
         [[ -z "$ADMIN_USERNAME" ]] && ADMIN_USERNAME="admin"
     fi
 
-    # Admin password (optional)
     if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
         echo ""
-        echo -e "${BOLD}Admin Password (Optional)${NC}"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "Leave blank to auto-generate a secure password."
-        echo "The generated password will be shown at the end."
-        echo ""
         read -rp "Admin password [auto-generate]: " ADMIN_PASSWORD
         [[ -z "$ADMIN_PASSWORD" ]] && ADMIN_PASSWORD=""
     fi
 
     echo ""
+}
+
+# Load .env file if it exists
+load_env_file() {
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        log "Loading configuration from $INSTALL_DIR/.env..."
+        set -a
+        source "$INSTALL_DIR/.env"
+        set +a
+    fi
 }
 
 # Detect server IP
@@ -282,13 +390,13 @@ install_dep() {
     esac
 }
 
-# Setup Tailscale
+# Setup Tailscale with Funnel (automatic HTTPS)
 setup_tailscale() {
     if [[ -z "$TAILSCALE_AUTH_KEY" ]]; then
         log_error "Tailscale auth key is required. Provide --tailscale-key or run interactively."
     fi
 
-    log_step "Setting up Tailscale VPN..."
+    log_step "Setting up Tailscale VPN with Funnel (automatic HTTPS)..."
 
     # Install Tailscale
     if ! command -v tailscale &> /dev/null; then
@@ -316,7 +424,7 @@ setup_tailscale() {
         sysctl -w net.ipv4.ip_forward=1 2>/dev/null || true
 
         # Connect with auth key
-        tailscale up --authkey="$TAILSCALE_AUTH_KEY" --accept-routes 2>/dev/null || \
+        tailscale up --authkey="$TAILSCALE_AUTH_KEY" --accept-routes --hostcheck=false 2>/dev/null || \
         tailscale up --authkey="$TAILSCALE_AUTH_KEY" 2>/dev/null || {
             log_warn "Auth key failed, trying interactive..."
             tailscale up --accept-routes
@@ -330,18 +438,31 @@ setup_tailscale() {
         if [[ -n "$TAILSCALE_IP" ]]; then
             log_success "Connected! Tailscale IP: $TAILSCALE_IP"
 
-            # Configure Funnel for HTTPS
+            # Configure Funnel for automatic HTTPS certificates
+            # Funnel exposes port 8443 with automatic Let's Encrypt certificates
+            log "Configuring Tailscale Funnel for automatic HTTPS..."
+
+            # Use the specified hostname or just enable Funnel
             if [[ -n "$TAILSCALE_FQDN" ]]; then
-                tailscale serve --set-hostname="$TAILSCALE_FQDN" --bg 2>/dev/null || \
-                tailscale serve https + --set-hostname="$TAILSCALE_FQDN" 2>/dev/null || true
+                # Set custom hostname and enable funnel
+                tailscale serve --set-hostname="$TAILSCALE_FQDN" 2>/dev/null || true
+                tailscale funnel --set-hostname="$TAILSCALE_FQDN" 8443 2>/dev/null || \
+                tailscale funnel 8443 2>/dev/null || true
             else
+                # Enable funnel on port 8443 (Tailscale handles HTTPS certs automatically)
+                tailscale funnel 8443 2>/dev/null || \
                 tailscale serve --bg 2>/dev/null || true
             fi
+
+            # Get the Funnel hostname
+            TAILSCALE_HOSTNAME=$(tailscale status --self --json 2>/dev/null | \
+                grep -oP '"DNSName":"[^"]+"' | head -1 | cut -d'"' -f4 | sed 's/\.$//' || true)
 
             # Enable on boot
             systemctl enable tailscaled 2>/dev/null || true
 
             TAILSCALE_CONFIGURED="true"
+            log_success "Funnel configured - HTTPS certificates are automatic!"
         fi
     else
         log_warn "Tailscale installation failed"
@@ -383,6 +504,116 @@ setup_cloudflare_dns() {
     else
         log_warn "DNS record creation failed or already exists"
     fi
+}
+
+# Setup Cloudflare Tunnel (Mode 2)
+setup_cloudflare_tunnel() {
+    if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+        log_error "Cloudflare API token is required for Cloudflare Tunnel mode"
+    fi
+
+    log_step "Setting up Cloudflare Tunnel..."
+
+    # Install cloudflared
+    if ! command -v cloudflared &> /dev/null; then
+        log "Installing Cloudflared tunnel daemon..."
+        if command -v apt-get &> /dev/null; then
+            curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+                -o /usr/local/bin/cloudflared
+            chmod +x /usr/local/bin/cloudflared
+        elif command -v yum &> /dev/null; then
+            curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+                -o /usr/local/bin/cloudflared
+            chmod +x /usr/local/bin/cloudflared
+        elif command -v apk &> /dev/null; then
+            apk add --no-cache cloudflared
+        fi
+    fi
+
+    if command -v cloudflared &> /dev/null; then
+        log "Creating Cloudflare Tunnel..."
+
+        # Create tunnel
+        local tunnel_response=$(cloudflared tunnel create openclaw 2>/dev/null || true)
+        local tunnel_id=$(echo "$tunnel_response" | grep -oP '[a-f0-9-]{36}' | head -1 || true)
+
+        if [[ -z "$tunnel_id" ]]; then
+            # Try to list existing tunnels
+            tunnel_id=$(cloudflared tunnel list 2>/dev/null | grep openclaw | awk '{print $1}' || true)
+        fi
+
+        if [[ -n "$tunnel_id" ]]; then
+            log_success "Tunnel created/verified: $tunnel_id"
+
+            # Create tunnel credentials file path
+            local creds_file="$DATA_DIR/tunnel-credentials.json"
+
+            # Create DNS record for the tunnel
+            local full_hostname="${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}"
+            log "Creating DNS record for $full_hostname..."
+
+            # Get or create CNAME for the tunnel
+            local dns_response=$(curl -fsSL -X POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"type\":\"CNAME\",\"name\":\"${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}\",\"content\":\"${tunnel_id}.cfargotunnel.com\",\"ttl\":3600,\"proxied\":true}" \
+                2>/dev/null)
+
+            if echo "$dns_response" | grep -q '"id"'; then
+                log_success "DNS record created"
+            else
+                log_warn "DNS record creation failed or already exists"
+            fi
+
+            # Save tunnel ID for docker-compose
+            CLOUDFLARE_TUNNEL_ID="$tunnel_id"
+
+            TUNNEL_CONFIGURED="true"
+            ACCESS_URL="https://${full_hostname}"
+        else
+            log_warn "Could not create or find Cloudflare Tunnel"
+        fi
+    else
+        log_warn "Cloudflared installation failed"
+    fi
+}
+
+# Setup Cloudflare Proxy Mode (Mode 3)
+setup_cloudflare_proxy() {
+    log_step "Setting up Cloudflare Proxy mode..."
+
+    # Create DNS A record pointing to server IP
+    if [[ -n "$DOMAIN" && -n "$CLOUDFLARE_API_TOKEN" ]]; then
+        local full_hostname="${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}"
+        log "Creating DNS A record for $full_hostname -> $SERVER_IP..."
+
+        # Check if Zone ID exists, if not try to get it
+        if [[ -z "$CLOUDFLARE_ZONE_ID" ]]; then
+            log "Fetching Zone ID for $DOMAIN..."
+            local zones_response=$(curl -fsSL -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" 2>/dev/null)
+            CLOUDFLARE_ZONE_ID=$(echo "$zones_response" | grep -oP '"id":"[^"]+"' | head -1 | cut -d'"' -f4)
+        fi
+
+        if [[ -n "$CLOUDFLARE_ZONE_ID" ]]; then
+            local dns_response=$(curl -fsSL -X POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"type\":\"A\",\"name\":\"${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}\",\"content\":\"$SERVER_IP\",\"ttl\":3600,\"proxied\":true}" \
+                2>/dev/null)
+
+            if echo "$dns_response" | grep -q '"id"'; then
+                log_success "DNS A record created (proxied through Cloudflare)"
+            else
+                log_warn "DNS record creation failed or already exists"
+            fi
+
+            ACCESS_URL="https://${full_hostname}"
+        fi
+    fi
+
+    PROXY_CONFIGURED="true"
 }
 
 # Generate secrets
@@ -841,28 +1072,73 @@ print_summary() {
     echo "=============================================="
     echo ""
 
-    if [[ "${TAILSCALE_CONFIGURED:-false}" == "true" ]]; then
-        echo -e "${BOLD}Tailscale VPN Access:${NC}"
-        echo "  VPN IP:      ${CYAN}${TAILSCALE_IP}${NC}"
-        if [[ -n "$TAILSCALE_HOSTNAME" ]]; then
-            echo "  Access URL:  ${CYAN}https://${TAILSCALE_HOSTNAME}${NC}"
-        fi
-        echo ""
-        echo "To access this server:"
-        echo "  1. Install Tailscale on your device: https://tailscale.com/download"
-        echo "  2. Log in with your Tailscale account"
-        echo "  3. Visit: https://${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}"
-        echo ""
-    fi
+    case "${SETUP_MODE:-1}" in
+        1)
+            echo -e "${BOLD}Mode: Tailscale VPN (Most Private)${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Your server is accessible ONLY through the Tailscale VPN."
+            echo "No ports are exposed to the public internet."
+            echo ""
+            echo "Access URL:"
+            echo "  ${CYAN}https://${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}${NC}"
+            echo ""
+            echo "How to access:"
+            echo "  1. Install Tailscale: https://tailscale.com/download"
+            echo "  2. Open Tailscale and log in"
+            echo "  3. Visit: https://${TAILSCALE_HOSTNAME:-${TAILSCALE_IP}}"
+            echo ""
+            echo "Best for:"
+            echo "  - Teams with Tailscale accounts"
+            echo "  - Maximum privacy and security"
+            echo "  - No internet exposure at all"
+            echo ""
+            ;;
+        2)
+            echo -e "${BOLD}Mode: Cloudflare Tunnel (Easy Access)${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Your server is accessible via Cloudflare's global network."
+            echo "No ports are exposed to the public internet."
+            echo ""
+            echo "Access URL:"
+            echo "  ${CYAN}https://${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}${NC}"
+            echo ""
+            echo "How to access:"
+            echo "  1. Open your browser"
+            echo "  2. Visit the URL above"
+            echo "  3. No VPN app needed!"
+            echo ""
+            echo "Best for:"
+            echo "  - Easy access without VPN app"
+            echo "  - Global availability via Cloudflare"
+            echo "  - Quick team onboarding"
+            echo ""
+            ;;
+        3)
+            echo -e "${BOLD}Mode: Cloudflare Proxy (Traditional)${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Your server uses Cloudflare as a reverse proxy."
+            echo "Traffic is protected but ports 80/443 must be accessible."
+            echo ""
+            echo "Access URL:"
+            echo "  ${CYAN}https://${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}${NC}"
+            echo ""
+            echo "How to access:"
+            echo "  1. Ensure ports 80 and 443 are open"
+            echo "  2. Visit the URL above"
+            echo ""
+            echo "Best for:"
+            echo "  - Traditional hosting setups"
+            echo "  - When you need direct server access"
+            echo "  - Full Cloudflare protection features"
+            echo ""
+            ;;
+    esac
 
-    echo -e "${BOLD}Local Access:${NC}"
-    echo "  https://localhost:${SSL_PORT}"
-    echo ""
     echo -e "${BOLD}Admin Credentials:${NC}"
     echo "  Username: ${ADMIN_USERNAME:-admin}"
     echo "  Password: ${ADMIN_PASSWORD}"
     echo ""
-    echo -e "${BOLD}Management:${NC}"
+    echo -e "${BOLD}Management Commands:${NC}"
     echo "  Logs:    docker-compose -f $INSTALL_DIR/docker-compose.yml logs -f"
     echo "  Stop:    docker-compose -f $INSTALL_DIR/docker-compose.yml down"
     echo "  Restart: docker-compose -f $INSTALL_DIR/docker-compose.yml restart"
@@ -879,18 +1155,37 @@ main() {
     echo "========================================"
     echo ""
 
+    # Load .env file if it exists (before parsing args so args can override)
+    load_env_file
+
     parse_args "$@"
 
-    # If Tailscale key not provided via args, go interactive
-    if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+    # If required credentials not provided via args, go interactive
+    if [[ -z "${TAILSCALE_AUTH_KEY:-}" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
         interactive_prompt
     fi
 
     detect_server_ip
     check_prerequisites
     create_openclaw_user
-    setup_tailscale
-    setup_cloudflare_dns
+
+    # Run setup based on chosen mode
+    case "${SETUP_MODE:-1}" in
+        1)
+            setup_tailscale
+            setup_cloudflare_dns
+            ;;
+        2)
+            setup_cloudflare_tunnel
+            ;;
+        3)
+            setup_cloudflare_proxy
+            ;;
+        *)
+            log_error "Invalid setup mode: $SETUP_MODE"
+            ;;
+    esac
+
     generate_secrets
     create_directories
     generate_ssl_cert

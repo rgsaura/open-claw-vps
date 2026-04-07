@@ -1,120 +1,189 @@
 # OpenClaw VPS Management System
 
-A secure, self-hosted VPS management system designed for **private access only**. Built for teams that need to manage multiple VPS instances across different projects while keeping them completely private and secure.
+A secure, self-hosted VPS management system with **flexible deployment options**. Choose between Tailscale VPN, Cloudflare Tunnel, or Cloudflare Proxy based on your security and accessibility needs.
 
-## Key Features
+## Choose Your Setup Mode
 
-- **Private by Design** - Only accessible via Tailscale VPN. No ports exposed to the public internet.
-- **Tailscale Integration** - Automatic VPN connection with HTTPS certificates via Funnel
-- **Production Ready** - TLS 1.3, security headers, rate limiting, container isolation
-- **One-Line Install** - Deploy on any server with a single curl command
+| Mode | Security | Accessibility | Best For |
+|------|----------|---------------|----------|
+| **1. Tailscale VPN** | Highest | Requires VPN app | Maximum privacy, team with Tailscale |
+| **2. Cloudflare Tunnel** | High | No VPN app | Easy access, global availability |
+| **3. Cloudflare Proxy** | High | No VPN app | Traditional hosting, full CF features |
+
+All modes: **No ports exposed to public internet** (except Mode 3 which needs 80/443)
+
+---
 
 ## Quick Start
 
-### 1. Get a Tailscale Auth Key
+### Interactive Setup (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/openclaw-installer.sh | bash
+```
+
+You'll be prompted to choose your setup mode and enter credentials.
+
+---
+
+## Setup Mode 1: Tailscale VPN
+
+**Most private** - No internet exposure, requires Tailscale app on devices.
+
+### 1. Get Tailscale Auth Key
 
 1. Go to [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys)
 2. Click "Generate auth key"
 3. Copy the key (starts with `tskey-auth-`)
 
-### 2. Install on Your Server
+### 2. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/openclaw-installer.sh | bash -s -- \
+  --setup-mode 1 \
   --tailscale-key tskey-auth-xxxxx
 ```
 
-The script will:
-- Install Docker if needed
-- Set up Tailscale VPN
-- Configure HTTPS
-- Deploy the application
+### 3. Access
 
-### 3. Access Your Instance
+Visit: `https://your-server.tail1234.ts.net`
 
-After installation, you'll get a private URL like:
-```
-https://your-server.tail1234.ts.net
-```
+Requires Tailscale app on your device.
 
-Only users logged into your Tailscale network can access it.
+---
 
-## With Custom Domain
+## Setup Mode 2: Cloudflare Tunnel (Recommended)
+
+**Easy access** - No VPN app needed, uses Cloudflare's global network.
+
+### 1. Get Cloudflare API Token
+
+1. Go to [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+2. Click "Create Token" → "Create Custom Token"
+3. Name: `OpenClaw Tunnel`
+4. Permissions: Account > Cloudflare Tunnel > Edit
+5. Account Resources: Include > Your account
+6. Create and copy the token
+
+### 2. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/install.sh | bash -s -- \
-  --tailscale-key tskey-auth-xxxxx \
-  --tailscale-fqdn openclaw.yourdomain.com \
-  --domain yourdomain.com \
+curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/openclaw-installer.sh | bash -s -- \
+  --setup-mode 2 \
   --cloudflare-token cf_token \
-  --cloudflare-zone-id cf_zone_id
+  --domain yourdomain.com
 ```
+
+### 3. Access
+
+Visit: `https://openclaw.yourdomain.com`
+
+No VPN app needed.
+
+---
+
+## Setup Mode 3: Cloudflare Proxy (Traditional)
+
+**Traditional setup** - Requires ports 80/443 open.
+
+### 1. Get Cloudflare API Token
+
+1. Go to [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+2. Click "Create Token" → "Create Custom Token"
+3. Name: `OpenClaw`
+4. Permissions: Zone > DNS > Edit
+5. Zone Resources: Include > Specific zone > Your domain
+6. Create and copy the token
+
+### 2. Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/openclaw-installer.sh | bash -s -- \
+  --setup-mode 3 \
+  --cloudflare-token cf_token \
+  --cloudflare-zone-id cf_zone_id \
+  --domain yourdomain.com
+```
+
+### 3. Access
+
+Visit: `https://openclaw.yourdomain.com`
+
+Ensure ports 80 and 443 are open on your server.
+
+---
 
 ## All Options
 
-| Option | Description |
-|--------|-------------|
-| `--tailscale-key` | Tailscale auth key (required) |
-| `--tailscale-fqdn` | Custom hostname (e.g., openclaw.example.com) |
-| `--cloudflare-token` | Cloudflare API token for DNS |
-| `--cloudflare-zone-id` | Cloudflare Zone ID |
-| `--domain` | Your domain name |
-| `--admin-user` | Admin username (default: admin) |
-| `--admin-pass` | Admin password (auto-generated if not set) |
-| `--skip-dns` | Skip Cloudflare DNS setup |
-| `--help` | Show help |
+| Option | Mode | Description |
+|--------|------|-------------|
+| `--setup-mode` | All | 1=Tailscale, 2=Tunnel, 3=Proxy |
+| `--tailscale-key` | 1 | Tailscale auth key (`tskey-auth-...`) |
+| `--cloudflare-token` | 2,3 | Cloudflare API token |
+| `--cloudflare-zone-id` | 2,3 | Cloudflare Zone ID |
+| `--domain` | 2,3 | Your domain name |
+| `--tunnel-subdomain` | 2,3 | Subdomain prefix (default: openclaw) |
+| `--admin-user` | All | Admin username (default: admin) |
+| `--admin-pass` | All | Admin password (auto-generated if not set) |
+
+---
+
+## Using .env File
+
+Create `.env` file for repeatable setups:
+
+```bash
+cp .env.example .env
+# Edit .env with your values
+curl -fsSL https://raw.githubusercontent.com/rgsaura/open-claw-vps/main/openclaw-installer.sh | bash
+```
+
+---
 
 ## Architecture
 
 ```
-User (Tailscale) ── VPN ──► Server (OpenClaw)
-                              │
-                              ├── Nginx (TLS termination, security headers)
-                              │     └── Port 8443 (localhost only)
-                              │
-                              └── Node.js (API)
-                                    └── Port 3000 (internal)
+┌─────────────────────────────────────────────────────────────┐
+│                        MODE 1: TAILSCALE                      │
+│  User ──► Tailscale VPN ──► Server (no ports exposed)       │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    MODE 2: CLOUDFLARE TUNNEL                  │
+│  User ──► Cloudflare Network ──► Tunnel ──► Server          │
+│                                          (no ports exposed)  │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    MODE 3: CLOUDFLARE PROXY                  │
+│  User ──► Cloudflare ──► Nginx:443 ──► Server              │
+│                              (ports 80/443 must be open)    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Security:**
-- No ports exposed to public internet
+**Security (all modes):**
 - TLS 1.3 with secure cipher suites
 - Helmet.js security headers
 - Rate limiting (100 req/15min per IP)
 - Container isolation (read-only, dropped capabilities)
 - Access logging disabled
+- No secrets in environment variables
+
+---
 
 ## Multi-Instance Setup
 
-For managing multiple VPS instances:
-
 ```bash
-# Instance 1 - Project A
-curl -fsSL https://.../install.sh | bash -s -- \
-  --tailscale-key tskey-auth-projA \
-  --admin-pass ProjectA_Secure123!
+# Instance 1 - Project A (Tailscale)
+curl -fsSL https://.../openclaw-installer.sh | bash -s -- \
+  --setup-mode 1 --tailscale-key tskey-auth-projA --admin-pass ProjA_Pass123!
 
-# Instance 2 - Project B
-curl -fsSL https://.../install.sh | bash -s -- \
-  --tailscale-key tskey-auth-projB \
-  --admin-pass ProjectB_Secure456!
+# Instance 2 - Project B (Cloudflare Tunnel)
+curl -fsSL https://.../openclaw-installer.sh | bash -s -- \
+  --setup-mode 2 --cloudflare-token cf_token --domain projB.com
 ```
 
-Each instance gets its own Tailscale identity and can be accessed via:
-- `https://projA.tailXXXX.ts.net`
-- `https://projB.tailXXXX.ts.net`
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/status` | GET | System status (auth required) |
-
-Example:
-```bash
-curl -H "X-API-Key: your-password" https://localhost:8443/api/status
-```
+---
 
 ## Management Commands
 
@@ -129,11 +198,16 @@ docker-compose -f /opt/open-claw/docker-compose.yml down
 docker-compose -f /opt/open-claw/docker-compose.yml restart
 ```
 
+---
+
 ## Requirements
 
 - Ubuntu/Debian/CentOS/Rocky Linux or Alpine
 - Docker and Docker Compose
-- Tailscale account (free at tailscale.com)
+- For Mode 1: Tailscale account ([tailscale.com](https://tailscale.com))
+- For Mode 2/3: Cloudflare account with domain added ([cloudflare.com](https://cloudflare.com))
+
+---
 
 ## License
 
