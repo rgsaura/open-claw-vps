@@ -935,6 +935,7 @@ content = content.replace("HASH", password_hash)
 with open("'"$INSTALL_DIR"'/docker-compose.yml", "w") as f:
     f.write(content)
 '
+}
 
 # Generate app
 generate_app() {
