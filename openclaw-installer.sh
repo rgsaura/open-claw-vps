@@ -482,10 +482,8 @@ setup_tailscale() {
             # Configure Funnel for automatic HTTPS certificates
             log "Configuring Tailscale Funnel for automatic HTTPS..."
 
-            # Enable Funnel with HTTPS on port 8443 (try different syntax)
-            tailscale funnel --port 8443 2>/dev/null || \
-            tailscale serve --port 8443 2>/dev/null || \
-            tailscale funnel 8443 2>/dev/null || true
+            # Enable Funnel with HTTPS on port 8443 for automatic HTTPS
+            tailscale funnel --bg 8443 2>/dev/null || true
 
             # Get the Funnel hostname (HTTPS certificate name)
             local _funnel_info=$(tailscale status --self --json 2>/dev/null || echo '{}')
