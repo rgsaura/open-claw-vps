@@ -891,7 +891,7 @@ generate_docker_compose() {
         printf '      - TAILSCALE_IP=\n'
         printf '      - TAILSCALE_HOSTNAME=\n'
         printf '      - ADMIN_USERNAME=admin\n'
-        printf '      - ADMIN_PASSWORD_HASH=%s\n' "$ADMIN_PASSWORD_HASH"
+        printf '      - ADMIN_PASSWORD_HASH=%s\n' "$_escaped_hash"
         printf '    networks:\n'
         printf '      - openclaw\n'
         printf '    security_opt:\n'
