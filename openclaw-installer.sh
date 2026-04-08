@@ -881,7 +881,7 @@ generate_docker_compose() {
         printf '    restart: unless-stopped\n'
         printf '    user: "%s:%s"\n' "$_uid" "$_gid"
         printf '    working_dir: /app\n'
-        printf '    command: sh -c "npm install --production && node index.js"\n'
+        printf '    command: sh -c "npm config set cache /app/.npm && npm install --production && node index.js"\n'
         printf '    volumes:\n'
         printf '      - ./app:/app\n'
         printf '    environment:\n'
