@@ -1202,7 +1202,6 @@ main() {
     case "${SETUP_MODE:-1}" in
         1)
             setup_tailscale
-            setup_cloudflare_dns
             ;;
         2)
             setup_cloudflare_tunnel
