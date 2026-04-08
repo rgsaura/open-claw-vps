@@ -837,101 +837,74 @@ generate_docker_compose() {
     local _uid=$(id -u openclaw 2>/dev/null || echo "1000")
     local _gid=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
 
-    # Generate session secret (alphanumeric only to avoid issues)
+    # Generate session secret (alphanumeric only to avoid $ issues)
     local _session_secret
     _session_secret=$(openssl rand -base64 24 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 24)
 
-    # Write the docker-compose template first
-    cat > "$INSTALL_DIR/docker-compose.yml" << 'DOCKER'
-services:
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    user: root
-    ports:
-      - "127.0.0.1:PORT:8080"
-      - "127.0.0.1:SSL_PORT:8443"
-    volumes:
-      - ./app:/usr/share/nginx/html:ro
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - app
-    networks:
-      - openclaw
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /run
-      - /tmp
-    cap_drop:
-      - ALL
-
-  app:
-    image: node:20-alpine
-    restart: unless-stopped
-    user: "UID:GID"
-    working_dir: /app
-    command: sh -c "npm install --production && node index.js"
-    volumes:
-      - ./app:/app
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - SESSION_SECRET=SECRET
-      - TAILSCALE_IP=
-      - TAILSCALE_HOSTNAME=
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD_HASH=HASH
-    networks:
-      - openclaw
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-
-networks:
-  openclaw:
-    driver: bridge
-DOCKER
-
     # Password hash should already be set by generate_secrets
-    # If not, generate a placeholder
+    # If not, generate a placeholder (avoid $ by using a hash without $)
     if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
-        ADMIN_PASSWORD_HASH='$1$placeholder$placeholder'
+        ADMIN_PASSWORD_HASH="CHANGEME"
     fi
 
-    # Export variables for Python to read
-    export _uid _gid _session_secret _admin_password_hash PORT SSL_PORT
-    _admin_password_hash="${ADMIN_PASSWORD_HASH}"
-
-    # Use Python for reliable template substitution (substitute INSTALL_DIR directly)
-    python3 - << PYEOF
-import os
-uid = os.environ.get('_uid', '1000')
-gid = os.environ.get('_gid', '1000')
-secret = os.environ.get('_session_secret', '')
-hash_val = os.environ.get('_admin_password_hash', '')
-port = os.environ.get('PORT', '8080')
-ssl_port = os.environ.get('SSL_PORT', '8443')
-
-with open("$INSTALL_DIR/docker-compose.yml", "r") as f:
-    content = f.read()
-
-content = content.replace("PORT", port)
-content = content.replace("SSL_PORT", ssl_port)
-content = content.replace("UID", uid)
-content = content.replace("GID", gid)
-content = content.replace("SECRET", secret)
-content = content.replace("HASH", hash_val)
-
-with open("$INSTALL_DIR/docker-compose.yml", "w") as f:
-    f.write(content)
-PYEOF
+    # Write docker-compose.yml using printf (avoids all heredoc/expansion issues)
+    # Use %s placeholders and supply values directly - NO variable expansion in template
+    {
+        printf 'services:\n'
+        printf '  nginx:\n'
+        printf '    image: nginx:alpine\n'
+        printf '    restart: unless-stopped\n'
+        printf '    user: root\n'
+        printf '    ports:\n'
+        printf '      - "127.0.0.1:%s:8080"\n' "$PORT"
+        printf '      - "127.0.0.1:%s:8443"\n' "$SSL_PORT"
+        printf '    volumes:\n'
+        printf '      - ./app:/usr/share/nginx/html:ro\n'
+        printf '      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro\n'
+        printf '      - ./ssl:/etc/nginx/ssl:ro\n'
+        printf '    depends_on:\n'
+        printf '      - app\n'
+        printf '    networks:\n'
+        printf '      - openclaw\n'
+        printf '    security_opt:\n'
+        printf '      - no-new-privileges:true\n'
+        printf '    read_only: true\n'
+        printf '    tmpfs:\n'
+        printf '      - /run\n'
+        printf '      - /tmp\n'
+        printf '    cap_drop:\n'
+        printf '      - ALL\n'
+        printf '\n'
+        printf '  app:\n'
+        printf '    image: node:20-alpine\n'
+        printf '    restart: unless-stopped\n'
+        printf '    user: "%s:%s"\n' "$_uid" "$_gid"
+        printf '    working_dir: /app\n'
+        printf '    command: sh -c "npm install --production && node index.js"\n'
+        printf '    volumes:\n'
+        printf '      - ./app:/app\n'
+        printf '    environment:\n'
+        printf '      - NODE_ENV=production\n'
+        printf '      - PORT=3000\n'
+        printf '      - SESSION_SECRET=%s\n' "$_session_secret"
+        printf '      - TAILSCALE_IP=\n'
+        printf '      - TAILSCALE_HOSTNAME=\n'
+        printf '      - ADMIN_USERNAME=admin\n'
+        printf '      - ADMIN_PASSWORD_HASH=%s\n' "$ADMIN_PASSWORD_HASH"
+        printf '    networks:\n'
+        printf '      - openclaw\n'
+        printf '    security_opt:\n'
+        printf '      - no-new-privileges:true\n'
+        printf '    read_only: true\n'
+        printf '    tmpfs:\n'
+        printf '      - /tmp\n'
+        printf '    cap_drop:\n'
+        printf '      - ALL\n'
+        printf '\n'
+        printf 'networks:\n'
+        printf '  openclaw:\n'
+        printf '    driver: bridge\n'
+    } > "$INSTALL_DIR/docker-compose.yml"
 }
 
 # Generate app
