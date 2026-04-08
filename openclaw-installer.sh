@@ -471,20 +471,10 @@ setup_tailscale() {
             log_success "Connected! Tailscale IP: $TAILSCALE_IP"
 
             # Configure Funnel for automatic HTTPS certificates
-            # Funnel exposes port 8443 with automatic Let's Encrypt certificates
             log "Configuring Tailscale Funnel for automatic HTTPS..."
 
-            # Use the specified hostname or just enable Funnel
-            if [[ -n "$TAILSCALE_FQDN" ]]; then
-                # Set custom hostname and enable funnel
-                tailscale serve --set-hostname="$TAILSCALE_FQDN" 2>/dev/null || true
-                tailscale funnel --set-hostname="$TAILSCALE_FQDN" 8443 2>/dev/null || \
-                tailscale funnel 8443 2>/dev/null || true
-            else
-                # Enable funnel on port 8443 (Tailscale handles HTTPS certs automatically)
-                tailscale funnel 8443 2>/dev/null || \
-                tailscale serve --bg 2>/dev/null || true
-            fi
+            tailscale funnel 8443 2>/dev/null || \
+            tailscale serve --bg 2>/dev/null || true
 
             # Get the Funnel hostname
             TAILSCALE_HOSTNAME=$(tailscale status --self --json 2>/dev/null | \
@@ -529,11 +519,12 @@ setup_cloudflare_dns() {
     fi
 
     # Create DNS record pointing to server IP
-    local subdomain="${TAILSCALE_FQDN%%.*}"
+    local dns_name="${TAILSCALE_SUBDOMAIN:-openclaw}"
+    [[ -z "$dns_name" ]] && dns_name="openclaw"
     local dns_response=$(curl -fsSL -X POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/dns_records" \
         -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
         -H "Content-Type: application/json" \
-        -d "{\"type\":\"A\",\"name\":\"${TAILSCALE_FQDN:-$subdomain}\",\"content\":\"$SERVER_IP\",\"ttl\":3600,\"proxied\":true}" \
+        -d "{\"type\":\"A\",\"name\":\"$dns_name\",\"content\":\"$SERVER_IP\",\"ttl\":3600,\"proxied\":true}" \
         2>/dev/null)
 
     if echo "$dns_response" | grep -q '"id"'; then
@@ -586,7 +577,7 @@ setup_cloudflare_tunnel() {
             local creds_file="$DATA_DIR/tunnel-credentials.json"
 
             # Create DNS record for the tunnel
-            local full_hostname="${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN}"
+            local full_hostname="${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}.${DOMAIN:-example.com}"
             log "Creating DNS record for $full_hostname..."
 
             # Get or create CNAME for the tunnel
@@ -712,10 +703,11 @@ create_directories() {
 # Generate SSL cert
 generate_ssl_cert() {
     log_step "Generating SSL certificate..."
+    local cert_cn="${TAILSCALE_HOSTNAME:-localhost}"
     openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
         -keyout "$INSTALL_DIR/ssl/privkey.pem" \
         -out "$INSTALL_DIR/ssl/fullchain.pem" \
-        -subj "/C=US/ST=State/L=City/O=OpenClaw/CN=${TAILSCALE_FQDN:-localhost}" 2>/dev/null
+        -subj "/C=US/ST=State/L=City/O=OpenClaw/CN=${cert_cn}" 2>/dev/null
     log_success "SSL certificate generated"
 }
 
@@ -1137,7 +1129,7 @@ print_summary() {
             echo "No ports are exposed to the public internet."
             echo ""
             echo "Access URL:"
-            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN}" "$NC"
+            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN:-example.com}" "$NC"
             echo ""
             echo "How to access:"
             echo "  1. Open your browser"
@@ -1157,7 +1149,7 @@ print_summary() {
             echo "Traffic is protected but ports 80/443 must be accessible."
             echo ""
             echo "Access URL:"
-            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN}" "$NC"
+            printf '  %shttps://%s.%s%s\n' "$CYAN" "${CLOUDFLARE_TUNNEL_SUBDOMAIN:-openclaw}" "${DOMAIN:-example.com}" "$NC"
             echo ""
             echo "How to access:"
             echo "  1. Ensure ports 80 and 443 are open"
