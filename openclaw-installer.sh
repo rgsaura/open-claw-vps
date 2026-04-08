@@ -818,20 +818,28 @@ NGINX
 # Generate Docker Compose
 generate_docker_compose() {
     # Get numeric UID/GID for openclaw user (default to 1000 if user doesn't exist yet)
-    OPENCLAW_UID=$(id -u openclaw 2>/dev/null || echo "1000")
-    OPENCLAW_GID=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
+    local _uid=$(id -u openclaw 2>/dev/null || echo "1000")
+    local _gid=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
 
-    cat > "$INSTALL_DIR/docker-compose.yml" << DOCKER
-version: '3.8'
+    # Escape special characters for YAML
+    local _session_secret="${SESSION_SECRET:-$(openssl rand -base64 24 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 24)}"
+    _session_secret="${_session_secret//\\/\\\\}"
+    _session_secret="${_session_secret//\"/\\\"}"
+    _session_secret="${_session_secret//:/\\:}"
+    _session_secret="${_session_secret//-/\\-}"
+    _session_secret="${_session_secret// /\\ }"
+    _session_secret="${_session_secret//[/\\[}"
+    _session_secret="${_session_secret//]/\\]}"
 
+    cat > "$INSTALL_DIR/docker-compose.yml" << 'DOCKER'
 services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     user: root
     ports:
-      - "127.0.0.1:${PORT}:8080"
-      - "127.0.0.1:${SSL_PORT}:8443"
+      - "127.0.0.1:PORT:8080"
+      - "127.0.0.1:SSL_PORT:8443"
     volumes:
       - ./app:/usr/share/nginx/html:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -852,7 +860,7 @@ services:
   app:
     image: node:20-alpine
     restart: unless-stopped
-    user: "${OPENCLAW_UID}:${OPENCLAW_GID}"
+    user: "UID:GID"
     working_dir: /app
     command: sh -c "npm install --production && node index.js"
     volumes:
@@ -860,11 +868,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - SESSION_SECRET=${SESSION_SECRET}
-      - TAILSCALE_IP=${TAILSCALE_IP:-}
-      - TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      - SESSION_SECRET=SECRET
+      - TAILSCALE_IP=
+      - TAILSCALE_HOSTNAME=
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD_HASH=HASH
     networks:
       - openclaw
     security_opt:
@@ -879,6 +887,16 @@ networks:
   openclaw:
     driver: bridge
 DOCKER
+
+    # Replace placeholders with actual values
+    sed -i \
+        -e "s/PORT/${PORT}/g" \
+        -e "s/SSL_PORT/${SSL_PORT}/g" \
+        -e "s/UID/${_uid}/g" \
+        -e "s/GID/${_gid}/g" \
+        -e "s|SECRET|${_session_secret}|g" \
+        -e "s|HASH|${ADMIN_PASSWORD_HASH}|g" \
+        "$INSTALL_DIR/docker-compose.yml"
 }
 
 # Generate app
