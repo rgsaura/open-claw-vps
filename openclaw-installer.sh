@@ -847,6 +847,9 @@ generate_docker_compose() {
         ADMIN_PASSWORD_HASH="CHANGEME"
     fi
 
+    # Escape $ in password hash for YAML (replace $ with $$ for Docker)
+    local _escaped_hash="${ADMIN_PASSWORD_HASH//\$/\$\$}"
+
     # Write docker-compose.yml using printf (avoids all heredoc/expansion issues)
     # Use %s placeholders and supply values directly - NO variable expansion in template
     {
