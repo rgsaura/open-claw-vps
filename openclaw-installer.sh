@@ -835,24 +835,11 @@ generate_docker_compose() {
     local _uid=$(id -u openclaw 2>/dev/null || echo "1000")
     local _gid=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
 
-    # Generate session secret (only alphanumeric to avoid issues)
+    # Generate session secret (alphanumeric only to avoid issues)
     local _session_secret
     _session_secret=$(openssl rand -base64 24 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 24)
-    # Also generate ADMIN_PASSWORD_HASH if not set
-    if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
-        ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | openssl passwd -1 -stdin 2>/dev/null || echo "\$1\$placeholder\$placeholder")
-    fi
 
-    # Escape $ for shell (so shell doesn't expand it) and escape other special chars for YAML
-    local _escaped_secret="${_session_secret//\$/\\\$}"
-    _escaped_secret="${_escaped_secret//\\/\\\\}"
-    _escaped_secret="${_escaped_secret//\"/\\\"}"
-    _escaped_secret="${_escaped_secret//:/\\:}"
-    _escaped_secret="${_escaped_secret//-/\\-}"
-    _escaped_secret="${_escaped_secret// /\\ }"
-    _escaped_secret="${_escaped_secret//[/\\[}"
-    _escaped_secret="${_escaped_secret//]/\\]}"
-
+    # Write the docker-compose template first
     cat > "$INSTALL_DIR/docker-compose.yml" << 'DOCKER'
 services:
   nginx:
@@ -890,11 +877,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - SESSION_SECRET='SECRET'
+      - SESSION_SECRET=SECRET
       - TAILSCALE_IP=
       - TAILSCALE_HOSTNAME=
       - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD_HASH='HASH'
+      - ADMIN_PASSWORD_HASH=HASH
     networks:
       - openclaw
     security_opt:
@@ -910,27 +897,44 @@ networks:
     driver: bridge
 DOCKER
 
-    # Escape password hash for shell and YAML (escape $ first, then other chars)
-    local _password_hash="${ADMIN_PASSWORD_HASH}"
-    _password_hash="${_password_hash//\$/\\\$}"
-    _password_hash="${_password_hash//\\/\\\\}"
-    _password_hash="${_password_hash//\"/\\\"}"
-    _password_hash="${_password_hash//:/\\:}"
-    _password_hash="${_password_hash//-/\\-}"
-    _password_hash="${_password_hash// /\\ }"
-    _password_hash="${_password_hash//[/\\[}"
-    _password_hash="${_password_hash//]/\\]}"
+    # Password hash should already be set by generate_secrets
+    # If not, generate a placeholder
+    if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
+        ADMIN_PASSWORD_HASH='$1$placeholder$placeholder'
+    fi
 
-    # Replace placeholders with actual values (quoted to prevent Docker expansion)
-    sed -i \
-        -e "s/PORT/${PORT}/g" \
-        -e "s/SSL_PORT/${SSL_PORT}/g" \
-        -e "s/UID/${_uid}/g" \
-        -e "s/GID/${_gid}/g" \
-        -e "s|SECRET|'${_escaped_secret}'|g" \
-        -e "s|HASH|'${_password_hash}'|g" \
-        "$INSTALL_DIR/docker-compose.yml"
-}
+    # Export variables for Python to read
+    export _uid _gid _session_secret _admin_password_hash PORT SSL_PORT
+    _admin_password_hash="${ADMIN_PASSWORD_HASH}"
+
+    # Use Python for reliable template substitution (avoids shell expansion issues)
+    python3 -c '
+import os
+
+# Read values from environment
+uid = os.environ.get("_uid", "1000")
+gid = os.environ.get("_gid", "1000")
+session_secret = os.environ.get("_session_secret", "")
+password_hash = os.environ.get("_admin_password_hash", "")
+port = os.environ.get("PORT", "8080")
+ssl_port = os.environ.get("SSL_PORT", "8443")
+
+# Read the template
+with open("'"$INSTALL_DIR"'/docker-compose.yml", "r") as f:
+    content = f.read()
+
+# Replace placeholders
+content = content.replace("PORT", port)
+content = content.replace("SSL_PORT", ssl_port)
+content = content.replace("UID", uid)
+content = content.replace("GID", gid)
+content = content.replace("SECRET", session_secret)
+content = content.replace("HASH", password_hash)
+
+# Write the result
+with open("'"$INSTALL_DIR"'/docker-compose.yml", "w") as f:
+    f.write(content)
+'
 
 # Generate app
 generate_app() {
