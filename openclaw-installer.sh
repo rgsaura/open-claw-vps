@@ -473,16 +473,21 @@ setup_tailscale() {
             # Configure Funnel for automatic HTTPS certificates
             log "Configuring Tailscale Funnel for automatic HTTPS..."
 
-            tailscale funnel 8443 2>/dev/null || \
-            tailscale serve --bg 2>/dev/null || true
+            # Enable Funnel with HTTPS on port 8443
+            tailscale funnel 8443 --bg || true
 
-            # Get the Funnel hostname
-            TAILSCALE_HOSTNAME=$(tailscale status --self --json 2>/dev/null | \
-                grep -oP '"DNSName":"[^"]+"' | head -1 | cut -d'"' -f4 | sed 's/\.$//' || true)
+            # Get the Funnel hostname (HTTPS certificate name)
+            local _funnel_info=$(tailscale status --self --json 2>/dev/null || echo '{}')
+            TAILSCALE_HOSTNAME=$(echo "$_funnel_info" | grep -oP '"DNSName":"[^"]+"' | head -1 | cut -d'"' -f4 | sed 's/\.$//' || true)
 
-            # Prepend subdomain if user specified one
+            # If subdomain specified, prepend it to the hostname
             if [[ -n "${TAILSCALE_SUBDOMAIN:-}" && -n "$TAILSCALE_HOSTNAME" ]]; then
-                TAILSCALE_HOSTNAME="${TAILSCALE_SUBDOMAIN}.${TAILSCALE_HOSTNAME}"
+                TAILSCALE_HOSTNAME="${TAILSCALE_SUBDOMAIN}.${TAILSCALE_HOSTNAME#*.}"  # Replace prefix with subdomain
+            fi
+
+            # Fallback: construct hostname from IP if not available
+            if [[ -z "$TAILSCALE_HOSTNAME" ]]; then
+                TAILSCALE_HOSTNAME="${TAILSCALE_SUBDOMAIN:-openclaw}.${TAILSCALE_IP}.ts.net"
             fi
 
             # Enable on boot
