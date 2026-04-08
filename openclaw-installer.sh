@@ -909,8 +909,8 @@ DOCKER
     export _uid _gid _session_secret _admin_password_hash PORT SSL_PORT
     _admin_password_hash="${ADMIN_PASSWORD_HASH}"
 
-    # Use Python for reliable template substitution
-    python3 - << 'PYEOF'
+    # Use Python for reliable template substitution (substitute INSTALL_DIR directly)
+    python3 - << PYEOF
 import os
 uid = os.environ.get('_uid', '1000')
 gid = os.environ.get('_gid', '1000')
