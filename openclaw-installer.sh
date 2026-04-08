@@ -905,24 +905,33 @@ DOCKER
         ADMIN_PASSWORD_HASH='$1$placeholder$placeholder'
     fi
 
-    # Use awk for reliable template substitution (handles special chars in passwords)
-    awk \
-        -v uid="$_uid" \
-        -v gid="$_gid" \
-        -v secret="$_session_secret" \
-        -v hash="$ADMIN_PASSWORD_HASH" \
-        -v port="$PORT" \
-        -v ssl_port="$SSL_PORT" \
-        '{
-            gsub(/PORT/, port);
-            gsub(/SSL_PORT/, ssl_port);
-            gsub(/UID/, uid);
-            gsub(/GID/, gid);
-            gsub(/SECRET/, secret);
-            gsub(/HASH/, hash);
-            print;
-        }' "$INSTALL_DIR/docker-compose.yml" > "$INSTALL_DIR/docker-compose.yml.tmp" && \
-        mv "$INSTALL_DIR/docker-compose.yml.tmp" "$INSTALL_DIR/docker-compose.yml"
+    # Export variables for Python to read
+    export _uid _gid _session_secret _admin_password_hash PORT SSL_PORT
+    _admin_password_hash="${ADMIN_PASSWORD_HASH}"
+
+    # Use Python for reliable template substitution
+    python3 - << 'PYEOF'
+import os
+uid = os.environ.get('_uid', '1000')
+gid = os.environ.get('_gid', '1000')
+secret = os.environ.get('_session_secret', '')
+hash_val = os.environ.get('_admin_password_hash', '')
+port = os.environ.get('PORT', '8080')
+ssl_port = os.environ.get('SSL_PORT', '8443')
+
+with open("$INSTALL_DIR/docker-compose.yml", "r") as f:
+    content = f.read()
+
+content = content.replace("PORT", port)
+content = content.replace("SSL_PORT", ssl_port)
+content = content.replace("UID", uid)
+content = content.replace("GID", gid)
+content = content.replace("SECRET", secret)
+content = content.replace("HASH", hash_val)
+
+with open("$INSTALL_DIR/docker-compose.yml", "w") as f:
+    f.write(content)
+PYEOF
 }
 
 # Generate app
