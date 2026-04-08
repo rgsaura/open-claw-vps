@@ -835,15 +835,23 @@ generate_docker_compose() {
     local _uid=$(id -u openclaw 2>/dev/null || echo "1000")
     local _gid=$(getent group openclaw 2>/dev/null | cut -d: -f3 || echo "1000")
 
-    # Escape special characters for YAML
-    local _session_secret="${SESSION_SECRET:-$(openssl rand -base64 24 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 24)}"
-    _session_secret="${_session_secret//\\/\\\\}"
-    _session_secret="${_session_secret//\"/\\\"}"
-    _session_secret="${_session_secret//:/\\:}"
-    _session_secret="${_session_secret//-/\\-}"
-    _session_secret="${_session_secret// /\\ }"
-    _session_secret="${_session_secret//[/\\[}"
-    _session_secret="${_session_secret//]/\\]}"
+    # Generate session secret (only alphanumeric to avoid issues)
+    local _session_secret
+    _session_secret=$(openssl rand -base64 24 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 24)
+    # Also generate ADMIN_PASSWORD_HASH if not set
+    if [[ -z "${ADMIN_PASSWORD_HASH:-}" ]]; then
+        ADMIN_PASSWORD_HASH=$(echo "$ADMIN_PASSWORD" | openssl passwd -1 -stdin 2>/dev/null || echo "\$1\$placeholder\$placeholder")
+    fi
+
+    # Escape $ for shell (so shell doesn't expand it) and escape other special chars for YAML
+    local _escaped_secret="${_session_secret//\$/\\\$}"
+    _escaped_secret="${_escaped_secret//\\/\\\\}"
+    _escaped_secret="${_escaped_secret//\"/\\\"}"
+    _escaped_secret="${_escaped_secret//:/\\:}"
+    _escaped_secret="${_escaped_secret//-/\\-}"
+    _escaped_secret="${_escaped_secret// /\\ }"
+    _escaped_secret="${_escaped_secret//[/\\[}"
+    _escaped_secret="${_escaped_secret//]/\\]}"
 
     cat > "$INSTALL_DIR/docker-compose.yml" << 'DOCKER'
 services:
@@ -902,8 +910,9 @@ networks:
     driver: bridge
 DOCKER
 
-    # Escape password hash for YAML (escape $ and other special chars)
+    # Escape password hash for shell and YAML (escape $ first, then other chars)
     local _password_hash="${ADMIN_PASSWORD_HASH}"
+    _password_hash="${_password_hash//\$/\\\$}"
     _password_hash="${_password_hash//\\/\\\\}"
     _password_hash="${_password_hash//\"/\\\"}"
     _password_hash="${_password_hash//:/\\:}"
@@ -918,7 +927,7 @@ DOCKER
         -e "s/SSL_PORT/${SSL_PORT}/g" \
         -e "s/UID/${_uid}/g" \
         -e "s/GID/${_gid}/g" \
-        -e "s|SECRET|'${_session_secret}'|g" \
+        -e "s|SECRET|'${_escaped_secret}'|g" \
         -e "s|HASH|'${_password_hash}'|g" \
         "$INSTALL_DIR/docker-compose.yml"
 }
