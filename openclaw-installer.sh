@@ -482,8 +482,10 @@ setup_tailscale() {
             # Configure Funnel for automatic HTTPS certificates
             log "Configuring Tailscale Funnel for automatic HTTPS..."
 
-            # Enable Funnel with HTTPS on port 8443
-            tailscale funnel 8443 --bg || true
+            # Enable Funnel with HTTPS on port 8443 (try different syntax)
+            tailscale funnel --port 8443 2>/dev/null || \
+            tailscale serve --port 8443 2>/dev/null || \
+            tailscale funnel 8443 2>/dev/null || true
 
             # Get the Funnel hostname (HTTPS certificate name)
             local _funnel_info=$(tailscale status --self --json 2>/dev/null || echo '{}')
@@ -903,38 +905,24 @@ DOCKER
         ADMIN_PASSWORD_HASH='$1$placeholder$placeholder'
     fi
 
-    # Export variables for Python to read
-    export _uid _gid _session_secret _admin_password_hash PORT SSL_PORT
-    _admin_password_hash="${ADMIN_PASSWORD_HASH}"
-
-    # Use Python for reliable template substitution (avoids shell expansion issues)
-    python3 -c '
-import os
-
-# Read values from environment
-uid = os.environ.get("_uid", "1000")
-gid = os.environ.get("_gid", "1000")
-session_secret = os.environ.get("_session_secret", "")
-password_hash = os.environ.get("_admin_password_hash", "")
-port = os.environ.get("PORT", "8080")
-ssl_port = os.environ.get("SSL_PORT", "8443")
-
-# Read the template
-with open("'"$INSTALL_DIR"'/docker-compose.yml", "r") as f:
-    content = f.read()
-
-# Replace placeholders
-content = content.replace("PORT", port)
-content = content.replace("SSL_PORT", ssl_port)
-content = content.replace("UID", uid)
-content = content.replace("GID", gid)
-content = content.replace("SECRET", session_secret)
-content = content.replace("HASH", password_hash)
-
-# Write the result
-with open("'"$INSTALL_DIR"'/docker-compose.yml", "w") as f:
-    f.write(content)
-'
+    # Use awk for reliable template substitution (handles special chars in passwords)
+    awk \
+        -v uid="$_uid" \
+        -v gid="$_gid" \
+        -v secret="$_session_secret" \
+        -v hash="$ADMIN_PASSWORD_HASH" \
+        -v port="$PORT" \
+        -v ssl_port="$SSL_PORT" \
+        '{
+            gsub(/PORT/, port);
+            gsub(/SSL_PORT/, ssl_port);
+            gsub(/UID/, uid);
+            gsub(/GID/, gid);
+            gsub(/SECRET/, secret);
+            gsub(/HASH/, hash);
+            print;
+        }' "$INSTALL_DIR/docker-compose.yml" > "$INSTALL_DIR/docker-compose.yml.tmp" && \
+        mv "$INSTALL_DIR/docker-compose.yml.tmp" "$INSTALL_DIR/docker-compose.yml"
 }
 
 # Generate app
