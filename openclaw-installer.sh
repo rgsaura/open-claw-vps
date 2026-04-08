@@ -63,60 +63,69 @@ prompt_password() {
     echo
 }
 
-# Parse arguments
+# Parse arguments (works with both piped scripts and direct execution)
 parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --setup-mode)
-                SETUP_MODE="$2"
-                shift 2
-                ;;
-            --tailscale-key)
-                TAILSCALE_AUTH_KEY="$2"
-                shift 2
-                ;;
-            --tailscale-subdomain)
-                TAILSCALE_SUBDOMAIN="$2"
-                shift 2
-                ;;
-            --cloudflare-token)
-                CLOUDFLARE_API_TOKEN="$2"
-                shift 2
-                ;;
-            --cloudflare-zone-id)
-                CLOUDFLARE_ZONE_ID="$2"
-                shift 2
-                ;;
-            --domain)
-                DOMAIN="$2"
-                shift 2
-                ;;
-            --tunnel-subdomain)
-                CLOUDFLARE_TUNNEL_SUBDOMAIN="$2"
-                shift 2
-                ;;
-            --admin-user)
-                ADMIN_USERNAME="$2"
-                shift 2
-                ;;
-            --admin-pass)
-                ADMIN_PASSWORD="$2"
-                shift 2
-                ;;
-            --skip-dns)
-                SKIP_DNS="true"
-                shift
-                ;;
-            --help|-h)
-                show_help
-                exit 0
-                ;;
-            *)
-                echo "Unknown option: $1"
-                exit 1
-                ;;
-        esac
-    done
+    # When piped via curl | bash, arguments come after -- separator
+    # Handle case where args were passed to bash -s -- args
+    if [[ $# -gt 0 ]]; then
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --setup-mode)
+                    SETUP_MODE="$2"
+                    shift 2
+                    ;;
+                --tailscale-key)
+                    TAILSCALE_AUTH_KEY="$2"
+                    shift 2
+                    ;;
+                --tailscale-subdomain)
+                    TAILSCALE_SUBDOMAIN="$2"
+                    shift 2
+                    ;;
+                --cloudflare-token)
+                    CLOUDFLARE_API_TOKEN="$2"
+                    shift 2
+                    ;;
+                --cloudflare-zone-id)
+                    CLOUDFLARE_ZONE_ID="$2"
+                    shift 2
+                    ;;
+                --domain)
+                    DOMAIN="$2"
+                    shift 2
+                    ;;
+                --tunnel-subdomain)
+                    CLOUDFLARE_TUNNEL_SUBDOMAIN="$2"
+                    shift 2
+                    ;;
+                --admin-user)
+                    ADMIN_USERNAME="$2"
+                    shift 2
+                    ;;
+                --admin-pass)
+                    ADMIN_PASSWORD="$2"
+                    shift 2
+                    ;;
+                --skip-dns)
+                    SKIP_DNS="true"
+                    shift
+                    ;;
+                --help|-h)
+                    show_help
+                    exit 0
+                    ;;
+                --)
+                    # End of options, stop parsing
+                    shift
+                    break
+                    ;;
+                *)
+                    # Skip unknown options to allow piped script to proceed
+                    shift
+                    ;;
+            esac
+        done
+    fi
 }
 
 show_help() {
