@@ -873,11 +873,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - SESSION_SECRET=SECRET
+      - SESSION_SECRET='SECRET'
       - TAILSCALE_IP=
       - TAILSCALE_HOSTNAME=
       - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD_HASH=HASH
+      - ADMIN_PASSWORD_HASH='HASH'
     networks:
       - openclaw
     security_opt:
@@ -893,14 +893,24 @@ networks:
     driver: bridge
 DOCKER
 
-    # Replace placeholders with actual values
+    # Escape password hash for YAML (escape $ and other special chars)
+    local _password_hash="${ADMIN_PASSWORD_HASH}"
+    _password_hash="${_password_hash//\\/\\\\}"
+    _password_hash="${_password_hash//\"/\\\"}"
+    _password_hash="${_password_hash//:/\\:}"
+    _password_hash="${_password_hash//-/\\-}"
+    _password_hash="${_password_hash// /\\ }"
+    _password_hash="${_password_hash//[/\\[}"
+    _password_hash="${_password_hash//]/\\]}"
+
+    # Replace placeholders with actual values (quoted to prevent Docker expansion)
     sed -i \
         -e "s/PORT/${PORT}/g" \
         -e "s/SSL_PORT/${SSL_PORT}/g" \
         -e "s/UID/${_uid}/g" \
         -e "s/GID/${_gid}/g" \
-        -e "s|SECRET|${_session_secret}|g" \
-        -e "s|HASH|${ADMIN_PASSWORD_HASH}|g" \
+        -e "s|SECRET|'${_session_secret}'|g" \
+        -e "s|HASH|'${_password_hash}'|g" \
         "$INSTALL_DIR/docker-compose.yml"
 }
 
